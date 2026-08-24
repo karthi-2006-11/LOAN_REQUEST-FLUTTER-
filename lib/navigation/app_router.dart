@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import '../screens/admin/admin_dashboard_placeholder.dart';
+import '../screens/admin/admin_dashboard_screen.dart';
+import '../screens/admin/admin_loan_details_screen.dart';
 import '../screens/auth/login_screen.dart';
 import '../screens/auth/register_screen.dart';
 import '../screens/auth/splash_screen.dart';
@@ -17,13 +18,14 @@ class AppRouter {
   static const String adminDashboard = '/admin-dashboard';
   static const String createLoan = '/create-loan';
   static const String loanDetails = '/loan-details';
+  static const String adminLoanDetails = '/admin-loan-details';
 
   static Map<String, WidgetBuilder> get routes => {
         splash: (context) => const SplashScreen(),
         login: (context) => const LoginScreen(),
         register: (context) => const RegisterScreen(),
         userDashboard: (context) => const UserDashboardScreen(),
-        adminDashboard: (context) => const AdminDashboardPlaceholder(),
+        adminDashboard: (context) => const AdminDashboardScreen(),
         createLoan: (context) => const CreateLoanScreen(),
       };
 
@@ -32,6 +34,14 @@ class AppRouter {
       final loanId = settings.arguments as String? ?? '';
       return MaterialPageRoute(
         builder: (context) => LoanDetailsScreen(loanId: loanId),
+        settings: settings,
+      );
+    }
+
+    if (settings.name == adminLoanDetails) {
+      final loanId = settings.arguments as String? ?? '';
+      return MaterialPageRoute(
+        builder: (context) => AdminLoanDetailsScreen(loanId: loanId),
         settings: settings,
       );
     }

@@ -10,6 +10,7 @@ class LoanProvider extends ChangeNotifier {
   bool _isLoading = false;
   String? _errorMessage;
   List<LoanModel> _userLoans = [];
+  List<LoanModel> _allLoans = [];
   LoanStatus? _selectedStatusFilter;
 
   LoanProvider({LoanRepository? loanRepository})
@@ -22,7 +23,10 @@ class LoanProvider extends ChangeNotifier {
   /// All loans for the active user
   List<LoanModel> get userLoans => List.unmodifiable(_userLoans);
 
-  /// Filtered view based on selected tab/chip
+  /// All system loans (for Admin views)
+  List<LoanModel> get allLoans => List.unmodifiable(_allLoans);
+
+  /// Filtered view for user based on selected tab/chip
   List<LoanModel> get filteredLoans {
     if (_selectedStatusFilter == null) {
       return userLoans;
@@ -32,19 +36,39 @@ class LoanProvider extends ChangeNotifier {
         .toList();
   }
 
-  /// Total active (pending + approved) count
+  /// Filtered view for admin based on selected tab/chip
+  List<LoanModel> get filteredAdminLoans {
+    if (_selectedStatusFilter == null) {
+      return allLoans;
+    }
+    return _allLoans
+        .where((loan) => loan.status == _selectedStatusFilter)
+        .toList();
+  }
+
+  // User Dashboard Metrics
   int get activeLoansCount => _userLoans
       .where((l) => l.status == LoanStatus.pending || l.status == LoanStatus.approved)
       .length;
 
-  /// Pending count
   int get pendingLoansCount =>
       _userLoans.where((l) => l.status == LoanStatus.pending).length;
 
-  /// Total amount borrowed (approved + pending)
   double get totalAmountBorrowed => _userLoans
       .where((l) => l.status == LoanStatus.pending || l.status == LoanStatus.approved)
       .fold(0.0, (sum, loan) => sum + loan.amount);
+
+  // Admin Dashboard Metrics
+  int get totalLoansCount => _allLoans.length;
+
+  int get adminPendingCount =>
+      _allLoans.where((l) => l.status == LoanStatus.pending).length;
+
+  int get approvedLoansCount =>
+      _allLoans.where((l) => l.status == LoanStatus.approved).length;
+
+  int get rejectedLoansCount =>
+      _allLoans.where((l) => l.status == LoanStatus.rejected).length;
 
   /// Set status filter (null = All)
   void setFilter(LoanStatus? filter) {
@@ -60,6 +84,22 @@ class LoanProvider extends ChangeNotifier {
 
     try {
       _userLoans = await _loanRepository.getUserLoans(userId);
+    } catch (e) {
+      _errorMessage = e.toString().replaceAll('Exception: ', '');
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  /// Fetch all system loans (Admin flow)
+  Future<void> fetchAllLoans() async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      _allLoans = await _loanRepository.getAllLoans();
     } catch (e) {
       _errorMessage = e.toString().replaceAll('Exception: ', '');
     } finally {
@@ -97,6 +137,7 @@ class LoanProvider extends ChangeNotifier {
 
       final created = await _loanRepository.createLoan(newLoan);
       _userLoans.insert(0, created);
+      _allLoans.insert(0, created);
       notifyListeners();
       return true;
     } catch (e) {
@@ -118,20 +159,36 @@ class LoanProvider extends ChangeNotifier {
     }
   }
 
-  /// Admin/System status update support
+  /// Admin/System status update support (Approve / Reject)
   Future<bool> updateLoanStatus(String loanId, LoanStatus newStatus) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
     try {
       final updated = await _loanRepository.updateLoanStatus(loanId, newStatus);
-      final index = _userLoans.indexWhere((l) => l.id == loanId);
-      if (index != -1) {
-        _userLoans[index] = updated;
-        notifyListeners();
+
+      // Update in _allLoans
+      final adminIndex = _allLoans.indexWhere((l) => l.id == loanId);
+      if (adminIndex != -1) {
+        _allLoans[adminIndex] = updated;
       }
+
+      // Update in _userLoans if loaded
+      final userIndex = _userLoans.indexWhere((l) => l.id == loanId);
+      if (userIndex != -1) {
+        _userLoans[userIndex] = updated;
+      }
+
+      notifyListeners();
       return true;
     } catch (e) {
       _errorMessage = e.toString().replaceAll('Exception: ', '');
       notifyListeners();
       return false;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
     }
   }
 

@@ -9,11 +9,13 @@ import 'status_chip.dart';
 class LoanCard extends StatelessWidget {
   final LoanModel loan;
   final VoidCallback onTap;
+  final bool showApplicantName;
 
   const LoanCard({
     super.key,
     required this.loan,
     required this.onTap,
+    this.showApplicantName = false,
   });
 
   @override
@@ -40,7 +42,7 @@ class LoanCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header Row: Purpose & Status Chip
+              // Header Row: Purpose, Applicant Name & Status Chip
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -62,12 +64,15 @@ class LoanCard extends StatelessWidget {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          'ID: ${loan.id}',
+                          'ID: ${loan.id}${showApplicantName ? "  •  ${loan.userName}" : ""}',
                           style: TextStyle(
                             fontSize: 11,
-                            color: isDark
-                                ? AppColors.textDarkSecondary
-                                : AppColors.textLightSecondary,
+                            fontWeight: showApplicantName ? FontWeight.w600 : FontWeight.normal,
+                            color: showApplicantName
+                                ? AppColors.primary
+                                : (isDark
+                                    ? AppColors.textDarkSecondary
+                                    : AppColors.textLightSecondary),
                           ),
                         ),
                       ],
