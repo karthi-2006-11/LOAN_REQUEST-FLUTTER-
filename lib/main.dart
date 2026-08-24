@@ -2,9 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'core/constants/app_constants.dart';
 import 'core/theme/app_theme.dart';
+import 'navigation/app_router.dart';
 import 'providers/auth_provider.dart';
 import 'providers/loan_provider.dart';
-import 'navigation/app_router.dart';
+import 'providers/notification_provider.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -23,6 +24,9 @@ class LoanRequestApp extends StatelessWidget {
         ),
         ChangeNotifierProvider<LoanProvider>(
           create: (_) => LoanProvider(),
+        ),
+        ChangeNotifierProvider<NotificationProvider>(
+          create: (_) => NotificationProvider(),
         ),
       ],
       child: MaterialApp(

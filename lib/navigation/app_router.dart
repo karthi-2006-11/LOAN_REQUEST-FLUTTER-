@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import '../screens/admin/admin_dashboard_screen.dart';
 import '../screens/admin/admin_loan_details_screen.dart';
+import '../screens/admin/admin_notifications_screen.dart';
 import '../screens/auth/login_screen.dart';
 import '../screens/auth/register_screen.dart';
 import '../screens/auth/splash_screen.dart';
 import '../screens/user/create_loan_screen.dart';
 import '../screens/user/loan_details_screen.dart';
+import '../screens/user/notifications_screen.dart';
 import '../screens/user/user_dashboard_screen.dart';
 
 class AppRouter {
@@ -19,6 +21,8 @@ class AppRouter {
   static const String createLoan = '/create-loan';
   static const String loanDetails = '/loan-details';
   static const String adminLoanDetails = '/admin-loan-details';
+  static const String userNotifications = '/user-notifications';
+  static const String adminNotifications = '/admin-notifications';
 
   static Map<String, WidgetBuilder> get routes => {
         splash: (context) => const SplashScreen(),
@@ -27,6 +31,8 @@ class AppRouter {
         userDashboard: (context) => const UserDashboardScreen(),
         adminDashboard: (context) => const AdminDashboardScreen(),
         createLoan: (context) => const CreateLoanScreen(),
+        userNotifications: (context) => const UserNotificationsScreen(),
+        adminNotifications: (context) => const AdminNotificationsScreen(),
       };
 
   static Route<dynamic>? onGenerateRoute(RouteSettings settings) {

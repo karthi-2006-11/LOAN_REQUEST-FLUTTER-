@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
+import '../../models/loan_activity_model.dart';
 import '../../models/loan_model.dart';
 import '../../models/loan_priority.dart';
 import '../../models/loan_status.dart';
@@ -24,6 +25,14 @@ class AdminLoanDetailsScreen extends StatefulWidget {
 
 class _AdminLoanDetailsScreenState extends State<AdminLoanDetailsScreen> {
   bool _isProcessing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Provider.of<LoanProvider>(context, listen: false).fetchLoanActivities(widget.loanId);
+    });
+  }
 
   Future<void> _handleDecision(LoanStatus targetStatus) async {
     final loanProvider = Provider.of<LoanProvider>(context, listen: false);
@@ -322,6 +331,123 @@ class _AdminLoanDetailsScreenState extends State<AdminLoanDetailsScreen> {
                 const SizedBox(height: 14),
 
                 _buildStatusTimeline(context, loan.status),
+
+                const SizedBox(height: 24),
+
+                // Loan Activity History Log Section
+                Text(
+                  'System Activity History Log',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: isDark
+                        ? AppColors.textDarkPrimary
+                        : AppColors.textLightPrimary,
+                  ),
+                ),
+                const SizedBox(height: 14),
+
+                Consumer<LoanProvider>(
+                  builder: (context, loanProvider, child) {
+                    final activities = loanProvider.currentLoanActivities;
+
+                    if (activities.isEmpty) {
+                      return Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: isDark ? AppColors.darkCard : AppColors.lightCard,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.history_rounded, color: Color(0xFF7C3AED)),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                'Loan submitted on ${dateFormatter.format(loan.createdAt)}',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: isDark
+                                      ? AppColors.textDarkSecondary
+                                      : AppColors.textLightSecondary,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+
+                    return Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: isDark ? AppColors.darkCard : AppColors.lightCard,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                        ),
+                      ),
+                      child: ListView.separated(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: activities.length,
+                        separatorBuilder: (context, index) =>
+                            const Divider(height: 20, thickness: 0.8),
+                        itemBuilder: (context, index) {
+                          final activity = activities[index];
+                          return Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: activity.type.color.withValues(alpha: 0.15),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Icon(
+                                  activity.type.icon,
+                                  color: activity.type.color,
+                                  size: 18,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      activity.message,
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        color: isDark
+                                            ? AppColors.textDarkPrimary
+                                            : AppColors.textLightPrimary,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      dateFormatter.format(activity.createdAt),
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: isDark
+                                            ? AppColors.textDarkSecondary
+                                            : AppColors.textLightSecondary,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                    );
+                  },
+                ),
 
                 const SizedBox(height: 24),
 

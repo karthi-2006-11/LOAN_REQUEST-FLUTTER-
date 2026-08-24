@@ -7,6 +7,7 @@ import '../../models/user_role.dart';
 import '../../navigation/app_router.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/loan_provider.dart';
+import '../../providers/notification_provider.dart';
 import '../../widgets/empty_state_widget.dart';
 import '../../widgets/loan_card.dart';
 import '../../widgets/role_badge.dart';
@@ -37,6 +38,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   void _loadData() {
     Provider.of<LoanProvider>(context, listen: false).fetchAllLoans();
+    Provider.of<NotificationProvider>(context, listen: false).fetchAdminNotifications();
   }
 
   @override
@@ -53,6 +55,48 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             title: const Text('Admin Management Console'),
             elevation: 0,
             actions: [
+              Consumer<NotificationProvider>(
+                builder: (context, notifProvider, child) {
+                  final unread = notifProvider.unreadCount;
+                  return Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.notifications_outlined),
+                        tooltip: 'System Notifications',
+                        onPressed: () {
+                          Navigator.of(context).pushNamed(AppRouter.adminNotifications);
+                        },
+                      ),
+                      if (unread > 0)
+                        Positioned(
+                          right: 8,
+                          top: 8,
+                          child: Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: const BoxDecoration(
+                              color: AppColors.error,
+                              shape: BoxShape.circle,
+                            ),
+                            constraints: const BoxConstraints(
+                              minWidth: 16,
+                              minHeight: 16,
+                            ),
+                            child: Text(
+                              unread > 9 ? '9+' : '$unread',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        ),
+                    ],
+                  );
+                },
+              ),
               IconButton(
                 icon: const Icon(Icons.refresh_rounded),
                 tooltip: 'Refresh System Data',

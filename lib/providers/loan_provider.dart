@@ -1,8 +1,13 @@
 import 'package:flutter/foundation.dart';
+import 'package:intl/intl.dart';
+import '../models/loan_activity_model.dart';
 import '../models/loan_model.dart';
 import '../models/loan_priority.dart';
 import '../models/loan_status.dart';
+import '../models/notification_model.dart';
+import '../repositories/loan_activity_repository.dart';
 import '../repositories/loan_repository.dart';
+import '../repositories/notification_repository.dart';
 
 enum AdminSortOption {
   newest,
@@ -31,11 +36,14 @@ extension AdminSortOptionExtension on AdminSortOption {
 
 class LoanProvider extends ChangeNotifier {
   final LoanRepository _loanRepository;
+  final NotificationRepository _notificationRepository;
+  final LoanActivityRepository _activityRepository;
 
   bool _isLoading = false;
   String? _errorMessage;
   List<LoanModel> _userLoans = [];
   List<LoanModel> _allLoans = [];
+  List<LoanActivityModel> _currentLoanActivities = [];
 
   // Filter & Search State
   LoanStatus? _selectedStatusFilter;
@@ -43,8 +51,13 @@ class LoanProvider extends ChangeNotifier {
   String _searchQuery = '';
   AdminSortOption _selectedSortOption = AdminSortOption.newest;
 
-  LoanProvider({LoanRepository? loanRepository})
-      : _loanRepository = loanRepository ?? LocalLoanRepository();
+  LoanProvider({
+    LoanRepository? loanRepository,
+    NotificationRepository? notificationRepository,
+    LoanActivityRepository? activityRepository,
+  })  : _loanRepository = loanRepository ?? LocalLoanRepository(),
+        _notificationRepository = notificationRepository ?? LocalNotificationRepository(),
+        _activityRepository = activityRepository ?? LocalLoanActivityRepository();
 
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
@@ -58,6 +71,9 @@ class LoanProvider extends ChangeNotifier {
 
   /// All system loans (for Admin views)
   List<LoanModel> get allLoans => List.unmodifiable(_allLoans);
+
+  /// Activities for currently inspected loan
+  List<LoanActivityModel> get currentLoanActivities => List.unmodifiable(_currentLoanActivities);
 
   /// Filtered view for user based on selected tab/chip
   List<LoanModel> get filteredLoans {
@@ -211,7 +227,17 @@ class LoanProvider extends ChangeNotifier {
     }
   }
 
-  /// Create a new loan request
+  /// Fetch activity history for a specific loan
+  Future<void> fetchLoanActivities(String loanId) async {
+    try {
+      _currentLoanActivities = await _activityRepository.getLoanActivities(loanId);
+      notifyListeners();
+    } catch (_) {
+      _currentLoanActivities = [];
+    }
+  }
+
+  /// Create a new loan request + Trigger Automatic Notifications & Activity
   Future<bool> createLoan({
     required String userId,
     required String userName,
@@ -223,6 +249,8 @@ class LoanProvider extends ChangeNotifier {
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
+
+    final currencyFormatter = NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 0);
 
     try {
       final loanId = 'LOAN-${DateTime.now().millisecondsSinceEpoch.toString().substring(6)}';
@@ -241,6 +269,50 @@ class LoanProvider extends ChangeNotifier {
       final created = await _loanRepository.createLoan(newLoan);
       _userLoans.insert(0, created);
       _allLoans.insert(0, created);
+
+      // 1. Create User Notification (1 Submission Notification)
+      final userNotifId = 'NOTIF-SUB-${DateTime.now().millisecondsSinceEpoch}';
+      await _notificationRepository.createNotification(
+        NotificationModel(
+          id: userNotifId,
+          userId: userId,
+          title: 'Loan Application Submitted',
+          message: 'Your loan request $loanId for ${currencyFormatter.format(amount)} ($purpose) has been submitted and is pending review.',
+          type: NotificationType.loanSubmitted,
+          loanId: loanId,
+          createdAt: DateTime.now(),
+          isRead: false,
+        ),
+      );
+
+      // 2. Create Admin Notification
+      final adminNotifId = 'NOTIF-ADM-${DateTime.now().millisecondsSinceEpoch}';
+      await _notificationRepository.createNotification(
+        NotificationModel(
+          id: adminNotifId,
+          userId: 'admin',
+          title: 'New Loan Application Submitted',
+          message: 'Applicant $userName submitted loan request $loanId for ${currencyFormatter.format(amount)}.',
+          type: NotificationType.loanSubmitted,
+          loanId: loanId,
+          createdAt: DateTime.now(),
+          isRead: false,
+        ),
+      );
+
+      // 3. Create Loan Activity Entry
+      await _activityRepository.addActivity(
+        LoanActivityModel(
+          id: 'ACT-${DateTime.now().millisecondsSinceEpoch}',
+          loanId: loanId,
+          userId: userId,
+          userName: userName,
+          type: ActivityType.submitted,
+          message: 'Loan application submitted for ${currencyFormatter.format(amount)}',
+          createdAt: DateTime.now(),
+        ),
+      );
+
       notifyListeners();
       return true;
     } catch (e) {
@@ -253,7 +325,7 @@ class LoanProvider extends ChangeNotifier {
     }
   }
 
-  /// Customer Cancel Pending Loan Action
+  /// Customer Cancel Pending Loan Action + Trigger Automatic Notifications & Activity
   Future<bool> cancelLoan(String loanId) async {
     final loan = await getLoanById(loanId);
     if (loan == null || loan.status != LoanStatus.pending) {
@@ -261,7 +333,7 @@ class LoanProvider extends ChangeNotifier {
       notifyListeners();
       return false;
     }
-    return await updateLoanStatus(loanId, LoanStatus.cancelled);
+    return await updateLoanStatus(loanId, LoanStatus.cancelled, targetLoan: loan);
   }
 
   /// Find loan details by ID
@@ -273,13 +345,16 @@ class LoanProvider extends ChangeNotifier {
     }
   }
 
-  /// Update Loan Status (Approve / Reject / Cancel)
-  Future<bool> updateLoanStatus(String loanId, LoanStatus newStatus) async {
+  /// Update Loan Status (Approve / Reject / Cancel) + Trigger Automatic Notifications & Activity
+  Future<bool> updateLoanStatus(String loanId, LoanStatus newStatus, {LoanModel? targetLoan}) async {
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
 
+    final currencyFormatter = NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 0);
+
     try {
+      final loan = targetLoan ?? await _loanRepository.getLoanById(loanId);
       final updated = await _loanRepository.updateLoanStatus(loanId, newStatus);
 
       // Update in _allLoans
@@ -294,6 +369,108 @@ class LoanProvider extends ChangeNotifier {
         _userLoans[userIndex] = updated;
       }
 
+      final amountStr = loan != null ? currencyFormatter.format(loan.amount) : '';
+      final userId = loan?.userId ?? '';
+      final userName = loan?.userName ?? 'Applicant';
+
+      if (newStatus == LoanStatus.approved) {
+        // User Notification
+        await _notificationRepository.createNotification(
+          NotificationModel(
+            id: 'NOTIF-APP-${DateTime.now().millisecondsSinceEpoch}',
+            userId: userId,
+            title: 'Loan Approved',
+            message: 'Great news! Your loan request $loanId for $amountStr has been approved by management.',
+            type: NotificationType.loanApproved,
+            loanId: loanId,
+            createdAt: DateTime.now(),
+            isRead: false,
+          ),
+        );
+
+        // Activity Record
+        await _activityRepository.addActivity(
+          LoanActivityModel(
+            id: 'ACT-APP-${DateTime.now().millisecondsSinceEpoch}',
+            loanId: loanId,
+            userId: userId,
+            userName: userName,
+            type: ActivityType.approved,
+            message: 'Administrator approved loan application for $amountStr',
+            createdAt: DateTime.now(),
+          ),
+        );
+      } else if (newStatus == LoanStatus.rejected) {
+        // User Notification
+        await _notificationRepository.createNotification(
+          NotificationModel(
+            id: 'NOTIF-REJ-${DateTime.now().millisecondsSinceEpoch}',
+            userId: userId,
+            title: 'Loan Rejected',
+            message: 'Your loan request $loanId for $amountStr has been rejected.',
+            type: NotificationType.loanRejected,
+            loanId: loanId,
+            createdAt: DateTime.now(),
+            isRead: false,
+          ),
+        );
+
+        // Activity Record
+        await _activityRepository.addActivity(
+          LoanActivityModel(
+            id: 'ACT-REJ-${DateTime.now().millisecondsSinceEpoch}',
+            loanId: loanId,
+            userId: userId,
+            userName: userName,
+            type: ActivityType.rejected,
+            message: 'Administrator rejected loan application for $amountStr',
+            createdAt: DateTime.now(),
+          ),
+        );
+      } else if (newStatus == LoanStatus.cancelled) {
+        // User Notification
+        await _notificationRepository.createNotification(
+          NotificationModel(
+            id: 'NOTIF-CAN-${DateTime.now().millisecondsSinceEpoch}',
+            userId: userId,
+            title: 'Loan Application Cancelled',
+            message: 'You cancelled your loan request $loanId for $amountStr.',
+            type: NotificationType.loanCancelled,
+            loanId: loanId,
+            createdAt: DateTime.now(),
+            isRead: false,
+          ),
+        );
+
+        // Admin Notification
+        await _notificationRepository.createNotification(
+          NotificationModel(
+            id: 'NOTIF-CAN-ADM-${DateTime.now().millisecondsSinceEpoch}',
+            userId: 'admin',
+            title: 'Loan Application Cancelled',
+            message: 'Applicant $userName cancelled loan request $loanId for $amountStr.',
+            type: NotificationType.loanCancelled,
+            loanId: loanId,
+            createdAt: DateTime.now(),
+            isRead: false,
+          ),
+        );
+
+        // Activity Record
+        await _activityRepository.addActivity(
+          LoanActivityModel(
+            id: 'ACT-CAN-${DateTime.now().millisecondsSinceEpoch}',
+            loanId: loanId,
+            userId: userId,
+            userName: userName,
+            type: ActivityType.cancelled,
+            message: 'Applicant $userName cancelled loan application',
+            createdAt: DateTime.now(),
+          ),
+        );
+      }
+
+      await fetchLoanActivities(loanId);
       notifyListeners();
       return true;
     } catch (e) {
