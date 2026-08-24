@@ -4,6 +4,31 @@ import '../models/loan_priority.dart';
 import '../models/loan_status.dart';
 import '../repositories/loan_repository.dart';
 
+enum AdminSortOption {
+  newest,
+  oldest,
+  highestAmount,
+  lowestAmount,
+  highestPriority,
+}
+
+extension AdminSortOptionExtension on AdminSortOption {
+  String get label {
+    switch (this) {
+      case AdminSortOption.newest:
+        return 'Newest First';
+      case AdminSortOption.oldest:
+        return 'Oldest First';
+      case AdminSortOption.highestAmount:
+        return 'Highest Amount';
+      case AdminSortOption.lowestAmount:
+        return 'Lowest Amount';
+      case AdminSortOption.highestPriority:
+        return 'Highest Priority';
+    }
+  }
+}
+
 class LoanProvider extends ChangeNotifier {
   final LoanRepository _loanRepository;
 
@@ -11,7 +36,12 @@ class LoanProvider extends ChangeNotifier {
   String? _errorMessage;
   List<LoanModel> _userLoans = [];
   List<LoanModel> _allLoans = [];
+
+  // Filter & Search State
   LoanStatus? _selectedStatusFilter;
+  LoanPriority? _selectedPriorityFilter;
+  String _searchQuery = '';
+  AdminSortOption _selectedSortOption = AdminSortOption.newest;
 
   LoanProvider({LoanRepository? loanRepository})
       : _loanRepository = loanRepository ?? LocalLoanRepository();
@@ -19,6 +49,9 @@ class LoanProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
   LoanStatus? get selectedStatusFilter => _selectedStatusFilter;
+  LoanPriority? get selectedPriorityFilter => _selectedPriorityFilter;
+  String get searchQuery => _searchQuery;
+  AdminSortOption get selectedSortOption => _selectedSortOption;
 
   /// All loans for the active user
   List<LoanModel> get userLoans => List.unmodifiable(_userLoans);
@@ -36,14 +69,51 @@ class LoanProvider extends ChangeNotifier {
         .toList();
   }
 
-  /// Filtered view for admin based on selected tab/chip
+  /// Filtered & Sorted view for admin
   List<LoanModel> get filteredAdminLoans {
-    if (_selectedStatusFilter == null) {
-      return allLoans;
+    List<LoanModel> result = List.from(_allLoans);
+
+    // 1. Status Filter
+    if (_selectedStatusFilter != null) {
+      result = result.where((l) => l.status == _selectedStatusFilter).toList();
     }
-    return _allLoans
-        .where((loan) => loan.status == _selectedStatusFilter)
-        .toList();
+
+    // 2. Priority Filter
+    if (_selectedPriorityFilter != null) {
+      result = result.where((l) => l.priority == _selectedPriorityFilter).toList();
+    }
+
+    // 3. Search Query (Applicant name, Loan ID, Purpose)
+    if (_searchQuery.trim().isNotEmpty) {
+      final query = _searchQuery.trim().toLowerCase();
+      result = result.where((l) {
+        final nameMatch = l.userName.toLowerCase().contains(query);
+        final idMatch = l.id.toLowerCase().contains(query);
+        final purposeMatch = l.purpose.toLowerCase().contains(query);
+        return nameMatch || idMatch || purposeMatch;
+      }).toList();
+    }
+
+    // 4. Sorting
+    switch (_selectedSortOption) {
+      case AdminSortOption.newest:
+        result.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+        break;
+      case AdminSortOption.oldest:
+        result.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+        break;
+      case AdminSortOption.highestAmount:
+        result.sort((a, b) => b.amount.compareTo(a.amount));
+        break;
+      case AdminSortOption.lowestAmount:
+        result.sort((a, b) => a.amount.compareTo(b.amount));
+        break;
+      case AdminSortOption.highestPriority:
+        result.sort((a, b) => b.priority.index.compareTo(a.priority.index));
+        break;
+    }
+
+    return List.unmodifiable(result);
   }
 
   // User Dashboard Metrics
@@ -53,6 +123,9 @@ class LoanProvider extends ChangeNotifier {
 
   int get pendingLoansCount =>
       _userLoans.where((l) => l.status == LoanStatus.pending).length;
+
+  int get userCancelledLoansCount =>
+      _userLoans.where((l) => l.status == LoanStatus.cancelled).length;
 
   double get totalAmountBorrowed => _userLoans
       .where((l) => l.status == LoanStatus.pending || l.status == LoanStatus.approved)
@@ -70,9 +143,39 @@ class LoanProvider extends ChangeNotifier {
   int get rejectedLoansCount =>
       _allLoans.where((l) => l.status == LoanStatus.rejected).length;
 
+  int get cancelledLoansCount =>
+      _allLoans.where((l) => l.status == LoanStatus.cancelled).length;
+
   /// Set status filter (null = All)
   void setFilter(LoanStatus? filter) {
     _selectedStatusFilter = filter;
+    notifyListeners();
+  }
+
+  /// Set priority filter (null = All)
+  void setPriorityFilter(LoanPriority? priority) {
+    _selectedPriorityFilter = priority;
+    notifyListeners();
+  }
+
+  /// Set search query
+  void setSearchQuery(String query) {
+    _searchQuery = query;
+    notifyListeners();
+  }
+
+  /// Set sort option
+  void setSortOption(AdminSortOption option) {
+    _selectedSortOption = option;
+    notifyListeners();
+  }
+
+  /// Clear all admin search/filters
+  void clearAdminFilters() {
+    _searchQuery = '';
+    _selectedStatusFilter = null;
+    _selectedPriorityFilter = null;
+    _selectedSortOption = AdminSortOption.newest;
     notifyListeners();
   }
 
@@ -150,6 +253,17 @@ class LoanProvider extends ChangeNotifier {
     }
   }
 
+  /// Customer Cancel Pending Loan Action
+  Future<bool> cancelLoan(String loanId) async {
+    final loan = await getLoanById(loanId);
+    if (loan == null || loan.status != LoanStatus.pending) {
+      _errorMessage = 'Only pending loans can be cancelled.';
+      notifyListeners();
+      return false;
+    }
+    return await updateLoanStatus(loanId, LoanStatus.cancelled);
+  }
+
   /// Find loan details by ID
   Future<LoanModel?> getLoanById(String id) async {
     try {
@@ -159,7 +273,7 @@ class LoanProvider extends ChangeNotifier {
     }
   }
 
-  /// Admin/System status update support (Approve / Reject)
+  /// Update Loan Status (Approve / Reject / Cancel)
   Future<bool> updateLoanStatus(String loanId, LoanStatus newStatus) async {
     _isLoading = true;
     _errorMessage = null;

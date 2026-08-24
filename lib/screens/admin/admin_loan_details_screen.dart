@@ -258,7 +258,7 @@ class _AdminLoanDetailsScreenState extends State<AdminLoanDetailsScreen> {
                   ),
                   const SizedBox(height: 24),
                 ] else ...[
-                  // Decision Notice Banner for Completed Requests
+                  // Decision / Status Notice Banner for Finalized Requests
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.all(16),
@@ -278,7 +278,9 @@ class _AdminLoanDetailsScreenState extends State<AdminLoanDetailsScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'Decision Finalized: ${loan.status.label}',
+                                loan.status == LoanStatus.cancelled
+                                    ? 'Application Cancelled by Customer'
+                                    : 'Decision Finalized: ${loan.status.label}',
                                 style: TextStyle(
                                   fontSize: 14,
                                   fontWeight: FontWeight.bold,
@@ -287,7 +289,9 @@ class _AdminLoanDetailsScreenState extends State<AdminLoanDetailsScreen> {
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                'This application has been processed and locked.',
+                                loan.status == LoanStatus.cancelled
+                                    ? 'The applicant withdrew this request before review.'
+                                    : 'This application has been processed and locked.',
                                 style: TextStyle(
                                   fontSize: 12,
                                   color: isDark
@@ -415,6 +419,27 @@ class _AdminLoanDetailsScreenState extends State<AdminLoanDetailsScreen> {
     final isPending = currentStatus == LoanStatus.pending;
     final isApproved = currentStatus == LoanStatus.approved;
     final isRejected = currentStatus == LoanStatus.rejected;
+    final isCancelled = currentStatus == LoanStatus.cancelled;
+
+    final isFinalStepReached = isApproved || isRejected || isCancelled;
+
+    String finalStepTitle = 'Approved';
+    Color finalStepColor = Colors.grey;
+    IconData finalStepIcon = Icons.radio_button_unchecked_rounded;
+
+    if (isApproved) {
+      finalStepTitle = 'Approved';
+      finalStepColor = AppColors.success;
+      finalStepIcon = Icons.verified_rounded;
+    } else if (isRejected) {
+      finalStepTitle = 'Rejected';
+      finalStepColor = AppColors.error;
+      finalStepIcon = Icons.cancel_rounded;
+    } else if (isCancelled) {
+      finalStepTitle = 'Cancelled';
+      finalStepColor = const Color(0xFF64748B);
+      finalStepIcon = Icons.block_rounded;
+    }
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -443,27 +468,21 @@ class _AdminLoanDetailsScreenState extends State<AdminLoanDetailsScreen> {
           _buildTimelineStep(
             context: context,
             title: 'Under Review',
-            isCompleted: isApproved || isRejected,
+            isCompleted: isFinalStepReached,
             isCurrent: isPending,
             color: AppColors.warning,
             icon: isPending
                 ? Icons.hourglass_top_rounded
                 : Icons.check_circle_rounded,
           ),
-          _buildTimelineConnector(isCompleted: isApproved || isRejected),
+          _buildTimelineConnector(isCompleted: isFinalStepReached),
           _buildTimelineStep(
             context: context,
-            title: isRejected ? 'Rejected' : 'Approved',
-            isCompleted: isApproved || isRejected,
-            isCurrent: isApproved || isRejected,
-            color: isRejected
-                ? AppColors.error
-                : (isApproved ? AppColors.success : Colors.grey),
-            icon: isRejected
-                ? Icons.cancel_rounded
-                : (isApproved
-                    ? Icons.verified_rounded
-                    : Icons.radio_button_unchecked_rounded),
+            title: finalStepTitle,
+            isCompleted: isFinalStepReached,
+            isCurrent: isFinalStepReached,
+            color: finalStepColor,
+            icon: finalStepIcon,
           ),
         ],
       ),

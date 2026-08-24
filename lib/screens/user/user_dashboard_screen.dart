@@ -247,6 +247,14 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
                               onTap: () =>
                                   loanProvider.setFilter(LoanStatus.rejected),
                             ),
+                            const SizedBox(width: 8),
+                            _buildFilterChip(
+                              context: context,
+                              label: 'Cancelled',
+                              isSelected: selectedFilter == LoanStatus.cancelled,
+                              onTap: () =>
+                                  loanProvider.setFilter(LoanStatus.cancelled),
+                            ),
                           ],
                         ),
                       ),

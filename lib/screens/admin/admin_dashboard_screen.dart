@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
+import '../../models/loan_priority.dart';
 import '../../models/loan_status.dart';
 import '../../models/user_role.dart';
 import '../../navigation/app_router.dart';
@@ -18,12 +19,20 @@ class AdminDashboardScreen extends StatefulWidget {
 }
 
 class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
+  final _searchController = TextEditingController();
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadData();
     });
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   void _loadData() {
@@ -64,7 +73,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           body: Consumer<LoanProvider>(
             builder: (context, loanProvider, child) {
               final loans = loanProvider.filteredAdminLoans;
-              final selectedFilter = loanProvider.selectedStatusFilter;
+              final selectedStatusFilter = loanProvider.selectedStatusFilter;
+              final selectedPriorityFilter = loanProvider.selectedPriorityFilter;
+              final selectedSort = loanProvider.selectedSortOption;
 
               return RefreshIndicator(
                 onRefresh: () async {
@@ -135,66 +146,89 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       ),
                       const SizedBox(height: 20),
 
-                      // 2. Summary Cards Grid
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _buildSummaryCard(
+                      // 2. Summary Cards Row (5 Metrics)
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            _buildSummaryCard(
                               context: context,
-                              title: 'Total Loans',
+                              title: 'Total',
                               value: '${loanProvider.totalLoansCount}',
                               icon: Icons.list_alt_rounded,
                               color: AppColors.primary,
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: _buildSummaryCard(
+                            const SizedBox(width: 8),
+                            _buildSummaryCard(
                               context: context,
                               title: 'Pending',
                               value: '${loanProvider.adminPendingCount}',
                               icon: Icons.hourglass_top_rounded,
                               color: AppColors.warning,
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: _buildSummaryCard(
+                            const SizedBox(width: 8),
+                            _buildSummaryCard(
                               context: context,
                               title: 'Approved',
                               value: '${loanProvider.approvedLoansCount}',
                               icon: Icons.check_circle_outline_rounded,
                               color: AppColors.success,
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: _buildSummaryCard(
+                            const SizedBox(width: 8),
+                            _buildSummaryCard(
                               context: context,
                               title: 'Rejected',
                               value: '${loanProvider.rejectedLoansCount}',
                               icon: Icons.cancel_outlined,
                               color: AppColors.error,
                             ),
-                          ),
-                        ],
+                            const SizedBox(width: 8),
+                            _buildSummaryCard(
+                              context: context,
+                              title: 'Cancelled',
+                              value: '${loanProvider.cancelledLoansCount}',
+                              icon: Icons.block_rounded,
+                              color: const Color(0xFF64748B),
+                            ),
+                          ],
+                        ),
                       ),
 
                       const SizedBox(height: 24),
 
-                      // 3. Section Title & Status Filters
-                      Text(
-                        'System Loan Applications',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: isDark
-                              ? AppColors.textDarkPrimary
-                              : AppColors.textLightPrimary,
+                      // 3. Search Bar
+                      TextField(
+                        controller: _searchController,
+                        onChanged: (val) => loanProvider.setSearchQuery(val),
+                        decoration: InputDecoration(
+                          hintText: 'Search by Applicant Name, ID, or Purpose...',
+                          prefixIcon: const Icon(Icons.search_rounded),
+                          suffixIcon: _searchController.text.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(Icons.clear_rounded),
+                                  onPressed: () {
+                                    _searchController.clear();
+                                    loanProvider.setSearchQuery('');
+                                  },
+                                )
+                              : null,
+                          contentPadding:
+                              const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                         ),
                       ),
-                      const SizedBox(height: 10),
 
+                      const SizedBox(height: 16),
+
+                      // 4. Status Filter Chips Row
+                      const Text(
+                        'Status Filter',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.textLightSecondary,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
                       SingleChildScrollView(
                         scrollDirection: Axis.horizontal,
                         child: Row(
@@ -202,14 +236,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                             _buildFilterChip(
                               context: context,
                               label: 'All (${loanProvider.allLoans.length})',
-                              isSelected: selectedFilter == null,
+                              isSelected: selectedStatusFilter == null,
                               onTap: () => loanProvider.setFilter(null),
                             ),
                             const SizedBox(width: 8),
                             _buildFilterChip(
                               context: context,
                               label: 'Pending (${loanProvider.adminPendingCount})',
-                              isSelected: selectedFilter == LoanStatus.pending,
+                              isSelected: selectedStatusFilter == LoanStatus.pending,
                               onTap: () =>
                                   loanProvider.setFilter(LoanStatus.pending),
                             ),
@@ -217,7 +251,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                             _buildFilterChip(
                               context: context,
                               label: 'Approved (${loanProvider.approvedLoansCount})',
-                              isSelected: selectedFilter == LoanStatus.approved,
+                              isSelected: selectedStatusFilter == LoanStatus.approved,
                               onTap: () =>
                                   loanProvider.setFilter(LoanStatus.approved),
                             ),
@@ -225,17 +259,127 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                             _buildFilterChip(
                               context: context,
                               label: 'Rejected (${loanProvider.rejectedLoansCount})',
-                              isSelected: selectedFilter == LoanStatus.rejected,
+                              isSelected: selectedStatusFilter == LoanStatus.rejected,
                               onTap: () =>
                                   loanProvider.setFilter(LoanStatus.rejected),
+                            ),
+                            const SizedBox(width: 8),
+                            _buildFilterChip(
+                              context: context,
+                              label: 'Cancelled (${loanProvider.cancelledLoansCount})',
+                              isSelected: selectedStatusFilter == LoanStatus.cancelled,
+                              onTap: () =>
+                                  loanProvider.setFilter(LoanStatus.cancelled),
                             ),
                           ],
                         ),
                       ),
 
+                      const SizedBox(height: 14),
+
+                      // 5. Priority Filter & Sorting Row
+                      Row(
+                        children: [
+                          // Priority Choice Chips
+                          Expanded(
+                            child: SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: Row(
+                                children: [
+                                  const Text(
+                                    'Priority: ',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                      color: AppColors.textLightSecondary,
+                                    ),
+                                  ),
+                                  _buildPriorityChip(
+                                    context: context,
+                                    label: 'All',
+                                    isSelected: selectedPriorityFilter == null,
+                                    onTap: () => loanProvider.setPriorityFilter(null),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  _buildPriorityChip(
+                                    context: context,
+                                    label: 'Low',
+                                    isSelected: selectedPriorityFilter == LoanPriority.low,
+                                    onTap: () =>
+                                        loanProvider.setPriorityFilter(LoanPriority.low),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  _buildPriorityChip(
+                                    context: context,
+                                    label: 'Med',
+                                    isSelected: selectedPriorityFilter == LoanPriority.medium,
+                                    onTap: () =>
+                                        loanProvider.setPriorityFilter(LoanPriority.medium),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  _buildPriorityChip(
+                                    context: context,
+                                    label: 'High',
+                                    isSelected: selectedPriorityFilter == LoanPriority.high,
+                                    onTap: () =>
+                                        loanProvider.setPriorityFilter(LoanPriority.high),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+
+                          const SizedBox(width: 8),
+
+                          // Sort Option Dropdown Button
+                          PopupMenuButton<AdminSortOption>(
+                            initialValue: selectedSort,
+                            onSelected: (option) => loanProvider.setSortOption(option),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: isDark ? AppColors.darkSurface : const Color(0xFFF1F5F9),
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.sort_rounded, size: 16),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    selectedSort.label,
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const Icon(Icons.arrow_drop_down, size: 18),
+                                ],
+                              ),
+                            ),
+                            itemBuilder: (context) => AdminSortOption.values.map((option) {
+                              return PopupMenuItem<AdminSortOption>(
+                                value: option,
+                                child: Text(
+                                  option.label,
+                                  style: TextStyle(
+                                    fontWeight: selectedSort == option
+                                        ? FontWeight.bold
+                                        : FontWeight.normal,
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                        ],
+                      ),
+
                       const SizedBox(height: 16),
 
-                      // Error message if any
+                      // Error Banner
                       if (loanProvider.errorMessage != null)
                         Container(
                           padding: const EdgeInsets.all(12),
@@ -263,7 +407,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                           ),
                         ),
 
-                      // 4. Loading / Empty / Loan Application List
+                      // 6. Application List / Empty View
                       if (loanProvider.isLoading)
                         const Padding(
                           padding: EdgeInsets.symmetric(vertical: 40),
@@ -271,14 +415,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         )
                       else if (loans.isEmpty)
                         EmptyStateWidget(
-                          title: selectedFilter == null
-                              ? 'No System Loans Found'
-                              : 'No ${selectedFilter.label} Applications',
-                          description: selectedFilter == null
-                              ? 'No loan applications have been submitted in the system yet.'
-                              : 'There are no applications matching the "${selectedFilter.label}" status filter.',
-                          buttonText: 'Refresh Applications',
-                          onActionPressed: _loadData,
+                          title: 'No Matching Loans Found',
+                          description:
+                              'No applications match your current search query, status, or priority filters.',
+                          buttonText: 'Reset Filters',
+                          onActionPressed: () {
+                            _searchController.clear();
+                            loanProvider.clearAdminFilters();
+                          },
                         )
                       else
                         ListView.builder(
@@ -323,6 +467,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     final isDark = theme.brightness == Brightness.dark;
 
     return Container(
+      width: 84,
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
       decoration: BoxDecoration(
         color: isDark ? AppColors.darkCard : AppColors.lightCard,
@@ -398,6 +543,46 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 : (isDark
                     ? AppColors.textDarkSecondary
                     : AppColors.textLightPrimary),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPriorityChip({
+    required BuildContext context,
+    required String label,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? AppColors.primary.withValues(alpha: 0.15)
+              : (isDark ? AppColors.darkSurface : const Color(0xFFF1F5F9)),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: isSelected
+                ? AppColors.primary
+                : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+            width: isSelected ? 1.5 : 1,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+            color: isSelected
+                ? AppColors.primary
+                : (isDark ? AppColors.textDarkSecondary : AppColors.textLightSecondary),
           ),
         ),
       ),

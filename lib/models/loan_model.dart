@@ -31,6 +31,14 @@ class LoanModel {
     return amount / tenureMonths;
   }
 
+  /// State helper checks
+  bool get isPending => status == LoanStatus.pending;
+  bool get isApproved => status == LoanStatus.approved;
+  bool get isRejected => status == LoanStatus.rejected;
+  bool get isCancelled => status == LoanStatus.cancelled;
+  bool get canBeCancelled => status == LoanStatus.pending;
+  bool get isFinalized => status != LoanStatus.pending;
+
   Map<String, dynamic> toJson() {
     return {
       'id': id,

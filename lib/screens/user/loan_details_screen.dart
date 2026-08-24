@@ -9,13 +9,84 @@ import '../../providers/loan_provider.dart';
 import '../../widgets/priority_badge.dart';
 import '../../widgets/status_chip.dart';
 
-class LoanDetailsScreen extends StatelessWidget {
+class LoanDetailsScreen extends StatefulWidget {
   final String loanId;
 
   const LoanDetailsScreen({
     super.key,
     required this.loanId,
   });
+
+  @override
+  State<LoanDetailsScreen> createState() => _LoanDetailsScreenState();
+}
+
+class _LoanDetailsScreenState extends State<LoanDetailsScreen> {
+  bool _isCancelling = false;
+
+  Future<void> _handleCancelLoan(BuildContext context, LoanModel loan) async {
+    final loanProvider = Provider.of<LoanProvider>(context, listen: false);
+    final messenger = ScaffoldMessenger.of(context);
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Cancel Loan Application'),
+        content: const Text(
+          'Are you sure you want to cancel this pending loan request? This action cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Keep Active'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.error,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Cancel Loan'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    if (!mounted) return;
+
+    setState(() {
+      _isCancelling = true;
+    });
+
+    final success = await loanProvider.cancelLoan(loan.id);
+
+    if (!mounted) return;
+
+    setState(() {
+      _isCancelling = false;
+    });
+
+    if (success) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Your loan request has been cancelled.'),
+          backgroundColor: AppColors.textLightSecondary,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } else {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            loanProvider.errorMessage ?? 'Failed to cancel loan request.',
+          ),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -33,7 +104,7 @@ class LoanDetailsScreen extends StatelessWidget {
         ),
       ),
       body: FutureBuilder<LoanModel?>(
-        future: Provider.of<LoanProvider>(context, listen: false).getLoanById(loanId),
+        future: Provider.of<LoanProvider>(context, listen: false).getLoanById(widget.loanId),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
@@ -124,7 +195,88 @@ class LoanDetailsScreen extends StatelessWidget {
                   ),
                 ),
 
-                const SizedBox(height: 28),
+                const SizedBox(height: 24),
+
+                // Customer Cancel Action Banner (If Pending)
+                if (loan.status == LoanStatus.pending) ...[
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(double.infinity, 50),
+                      foregroundColor: AppColors.error,
+                      side: BorderSide(
+                        color: AppColors.error.withValues(alpha: 0.6),
+                        width: 1.5,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                    icon: _isCancelling
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(AppColors.error),
+                            ),
+                          )
+                        : const Icon(Icons.cancel_outlined, size: 20),
+                    label: const Text(
+                      'Cancel Application',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    onPressed: _isCancelling ? null : () => _handleCancelLoan(context, loan),
+                  ),
+                  const SizedBox(height: 24),
+                ] else if (loan.status == LoanStatus.cancelled) ...[
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: LoanStatus.cancelled.backgroundColor,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: LoanStatus.cancelled.color.withValues(alpha: 0.3),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(LoanStatus.cancelled.icon,
+                            color: LoanStatus.cancelled.color, size: 22),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Loan Application Cancelled',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                  color: LoanStatus.cancelled.color,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'You cancelled this request before processing.',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: isDark
+                                      ? AppColors.textDarkSecondary
+                                      : AppColors.textLightSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                ],
 
                 // Application Status Timeline
                 Text(
@@ -177,7 +329,7 @@ class LoanDetailsScreen extends StatelessWidget {
                         context: context,
                         label: 'Loan Amount',
                         value: currencyFormatter.format(loan.amount),
-                        icon: Icons.attach_money_rounded,
+                        icon: Icons.currency_rupee_rounded,
                       ),
                       const Divider(height: 1),
                       _buildInfoRow(
@@ -230,6 +382,27 @@ class LoanDetailsScreen extends StatelessWidget {
     final isPending = currentStatus == LoanStatus.pending;
     final isApproved = currentStatus == LoanStatus.approved;
     final isRejected = currentStatus == LoanStatus.rejected;
+    final isCancelled = currentStatus == LoanStatus.cancelled;
+
+    final isFinalStepReached = isApproved || isRejected || isCancelled;
+
+    String finalStepTitle = 'Approved';
+    Color finalStepColor = Colors.grey;
+    IconData finalStepIcon = Icons.radio_button_unchecked_rounded;
+
+    if (isApproved) {
+      finalStepTitle = 'Approved';
+      finalStepColor = AppColors.success;
+      finalStepIcon = Icons.verified_rounded;
+    } else if (isRejected) {
+      finalStepTitle = 'Rejected';
+      finalStepColor = AppColors.error;
+      finalStepIcon = Icons.cancel_rounded;
+    } else if (isCancelled) {
+      finalStepTitle = 'Cancelled';
+      finalStepColor = const Color(0xFF64748B);
+      finalStepIcon = Icons.block_rounded;
+    }
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -246,7 +419,7 @@ class LoanDetailsScreen extends StatelessWidget {
       ),
       child: Row(
         children: [
-          // Step 1: Applied
+          // Step 1: Submitted
           _buildTimelineStep(
             context: context,
             title: 'Submitted',
@@ -257,33 +430,27 @@ class LoanDetailsScreen extends StatelessWidget {
           ),
           _buildTimelineConnector(isCompleted: true),
 
-          // Step 2: Pending Under Review
+          // Step 2: Under Review
           _buildTimelineStep(
             context: context,
             title: 'Under Review',
-            isCompleted: isApproved || isRejected,
+            isCompleted: isFinalStepReached,
             isCurrent: isPending,
             color: AppColors.warning,
             icon: isPending
                 ? Icons.hourglass_top_rounded
                 : Icons.check_circle_rounded,
           ),
-          _buildTimelineConnector(isCompleted: isApproved || isRejected),
+          _buildTimelineConnector(isCompleted: isFinalStepReached),
 
-          // Step 3: Final Decision (Approved / Rejected)
+          // Step 3: Final Outcome
           _buildTimelineStep(
             context: context,
-            title: isRejected ? 'Rejected' : 'Approved',
-            isCompleted: isApproved || isRejected,
-            isCurrent: isApproved || isRejected,
-            color: isRejected
-                ? AppColors.error
-                : (isApproved ? AppColors.success : Colors.grey),
-            icon: isRejected
-                ? Icons.cancel_rounded
-                : (isApproved
-                    ? Icons.verified_rounded
-                    : Icons.radio_button_unchecked_rounded),
+            title: finalStepTitle,
+            isCompleted: isFinalStepReached,
+            isCurrent: isFinalStepReached,
+            color: finalStepColor,
+            icon: finalStepIcon,
           ),
         ],
       ),

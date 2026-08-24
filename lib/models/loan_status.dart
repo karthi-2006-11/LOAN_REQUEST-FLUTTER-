@@ -6,6 +6,7 @@ enum LoanStatus {
   pending,
   approved,
   rejected,
+  cancelled,
 }
 
 extension LoanStatusExtension on LoanStatus {
@@ -17,6 +18,8 @@ extension LoanStatusExtension on LoanStatus {
         return 'Approved';
       case LoanStatus.rejected:
         return 'Rejected';
+      case LoanStatus.cancelled:
+        return 'Cancelled';
     }
   }
 
@@ -28,6 +31,8 @@ extension LoanStatusExtension on LoanStatus {
         return AppColors.success;
       case LoanStatus.rejected:
         return AppColors.error;
+      case LoanStatus.cancelled:
+        return const Color(0xFF64748B); // Slate Grey
     }
   }
 
@@ -39,6 +44,8 @@ extension LoanStatusExtension on LoanStatus {
         return AppColors.success.withValues(alpha: 0.15);
       case LoanStatus.rejected:
         return AppColors.error.withValues(alpha: 0.15);
+      case LoanStatus.cancelled:
+        return const Color(0xFF64748B).withValues(alpha: 0.15);
     }
   }
 
@@ -50,6 +57,8 @@ extension LoanStatusExtension on LoanStatus {
         return Icons.check_circle_outline_rounded;
       case LoanStatus.rejected:
         return Icons.cancel_outlined;
+      case LoanStatus.cancelled:
+        return Icons.block_rounded;
     }
   }
 
@@ -59,6 +68,9 @@ extension LoanStatusExtension on LoanStatus {
         return LoanStatus.approved;
       case 'rejected':
         return LoanStatus.rejected;
+      case 'cancelled':
+      case 'canceled':
+        return LoanStatus.cancelled;
       case 'pending':
       default:
         return LoanStatus.pending;
