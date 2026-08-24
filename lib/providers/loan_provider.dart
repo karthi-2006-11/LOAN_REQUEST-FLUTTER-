@@ -355,6 +355,16 @@ class LoanProvider extends ChangeNotifier {
 
     try {
       final loan = targetLoan ?? await _loanRepository.getLoanById(loanId);
+      if (loan == null) {
+        _errorMessage = 'Loan application not found.';
+        return false;
+      }
+
+      if (loan.isFinalized) {
+        _errorMessage = 'State transition denied: Cannot modify a finalized (${loan.status.label}) loan application.';
+        return false;
+      }
+
       final updated = await _loanRepository.updateLoanStatus(loanId, newStatus);
 
       // Update in _allLoans
@@ -369,9 +379,9 @@ class LoanProvider extends ChangeNotifier {
         _userLoans[userIndex] = updated;
       }
 
-      final amountStr = loan != null ? currencyFormatter.format(loan.amount) : '';
-      final userId = loan?.userId ?? '';
-      final userName = loan?.userName ?? 'Applicant';
+      final amountStr = currencyFormatter.format(loan.amount);
+      final userId = loan.userId;
+      final userName = loan.userName;
 
       if (newStatus == LoanStatus.approved) {
         // User Notification

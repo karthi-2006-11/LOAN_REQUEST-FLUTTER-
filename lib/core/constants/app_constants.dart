@@ -1,9 +1,9 @@
-/// Application-wide constants.
+/// Application-wide constants for BlackVault.
 class AppConstants {
   AppConstants._();
 
-  static const String appName = 'LoanVerse';
-  static const String appTagline = 'Fast & Secure Financial Solutions';
+  static const String appName = 'BlackVault';
+  static const String appTagline = 'Secure Loans. Smarter Decisions.';
   static const String appVersion = '1.0.0';
 
   // Storage Keys for Shared Preferences

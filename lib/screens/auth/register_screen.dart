@@ -99,7 +99,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
-                  'Join LoanVerse',
+                  'Join BlackVault',
                   style: TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.bold,

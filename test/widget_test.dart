@@ -11,7 +11,7 @@ void main() {
 
   testWidgets('App renders splash screen initially', (WidgetTester tester) async {
     await tester.pumpWidget(const LoanRequestApp());
-    expect(find.text('LOAN VERSE'), findsOneWidget);
+    expect(find.text('BLACKVAULT'), findsOneWidget);
 
     // Fast-forward past splash timer to dispose cleanly
     await tester.pump(const Duration(milliseconds: 2000));

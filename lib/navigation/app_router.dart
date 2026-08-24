@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../models/user_role.dart';
+import '../providers/auth_provider.dart';
 import '../screens/admin/admin_dashboard_screen.dart';
 import '../screens/admin/admin_loan_details_screen.dart';
 import '../screens/admin/admin_notifications_screen.dart';
@@ -36,10 +39,11 @@ class AppRouter {
       };
 
   static Route<dynamic>? onGenerateRoute(RouteSettings settings) {
+    // Parameterized routes
     if (settings.name == loanDetails) {
       final loanId = settings.arguments as String? ?? '';
       return MaterialPageRoute(
-        builder: (context) => LoanDetailsScreen(loanId: loanId),
+        builder: (context) => _guardUserRoute(context, LoanDetailsScreen(loanId: loanId)),
         settings: settings,
       );
     }
@@ -47,9 +51,31 @@ class AppRouter {
     if (settings.name == adminLoanDetails) {
       final loanId = settings.arguments as String? ?? '';
       return MaterialPageRoute(
-        builder: (context) => AdminLoanDetailsScreen(loanId: loanId),
+        builder: (context) => _guardAdminRoute(context, AdminLoanDetailsScreen(loanId: loanId)),
         settings: settings,
       );
+    }
+
+    if (settings.name == adminDashboard || settings.name == adminNotifications) {
+      final builder = routes[settings.name];
+      if (builder != null) {
+        return MaterialPageRoute(
+          builder: (context) => _guardAdminRoute(context, builder(context)),
+          settings: settings,
+        );
+      }
+    }
+
+    if (settings.name == userDashboard ||
+        settings.name == createLoan ||
+        settings.name == userNotifications) {
+      final builder = routes[settings.name];
+      if (builder != null) {
+        return MaterialPageRoute(
+          builder: (context) => _guardUserRoute(context, builder(context)),
+          settings: settings,
+        );
+      }
     }
 
     final builder = routes[settings.name];
@@ -63,5 +89,26 @@ class AppRouter {
     return MaterialPageRoute(
       builder: (context) => const SplashScreen(),
     );
+  }
+
+  static Widget _guardAdminRoute(BuildContext context, Widget child) {
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    final user = auth.currentUser;
+    if (user == null) {
+      return const LoginScreen();
+    }
+    if (user.role != UserRole.admin) {
+      return const UserDashboardScreen();
+    }
+    return child;
+  }
+
+  static Widget _guardUserRoute(BuildContext context, Widget child) {
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    final user = auth.currentUser;
+    if (user == null) {
+      return const LoginScreen();
+    }
+    return child;
   }
 }

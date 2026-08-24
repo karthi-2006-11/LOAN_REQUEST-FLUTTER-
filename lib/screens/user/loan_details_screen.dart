@@ -6,6 +6,8 @@ import '../../models/loan_activity_model.dart';
 import '../../models/loan_model.dart';
 import '../../models/loan_priority.dart';
 import '../../models/loan_status.dart';
+import '../../models/user_role.dart';
+import '../../providers/auth_provider.dart';
 import '../../providers/loan_provider.dart';
 import '../../widgets/priority_badge.dart';
 import '../../widgets/status_chip.dart';
@@ -134,6 +136,36 @@ class _LoanDetailsScreenState extends State<LoanDetailsScreen> {
                     child: const Text('Go Back'),
                   ),
                 ],
+              ),
+            );
+          }
+
+          final authUser = Provider.of<AuthProvider>(context, listen: false).currentUser;
+          if (authUser != null && authUser.role == UserRole.user && loan.userId != authUser.id) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.security_rounded, size: 54, color: AppColors.error),
+                    const SizedBox(height: 14),
+                    const Text(
+                      'Access Denied',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.error),
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'You are not authorized to view another user\'s loan application.',
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 18),
+                    ElevatedButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('Go Back'),
+                    ),
+                  ],
+                ),
               ),
             );
           }

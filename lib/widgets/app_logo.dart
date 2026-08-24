@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../core/constants/app_colors.dart';
 
-/// Professional Fintech App Logo Widget.
+/// Professional Fintech BlackVault App Logo Widget.
 class AppLogo extends StatelessWidget {
   final double size;
   final bool showText;
@@ -39,7 +39,7 @@ class AppLogo extends StatelessWidget {
           ),
           child: Center(
             child: Icon(
-              Icons.account_balance_rounded,
+              Icons.shield_rounded,
               size: size * 0.52,
               color: Colors.white,
             ),
@@ -48,7 +48,7 @@ class AppLogo extends StatelessWidget {
         if (showText) ...[
           const SizedBox(height: 14),
           Text(
-            'LOAN VERSE',
+            'BLACKVAULT',
             style: TextStyle(
               fontSize: size * 0.34,
               fontWeight: FontWeight.w800,
@@ -59,11 +59,11 @@ class AppLogo extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            'FAST & SECURE LOAN REQUESTS',
+            'SECURE LOANS. SMARTER DECISIONS.',
             style: TextStyle(
-              fontSize: 10,
+              fontSize: 9,
               fontWeight: FontWeight.w600,
-              letterSpacing: 1.5,
+              letterSpacing: 1.2,
               color: isDark
                   ? AppColors.textDarkSecondary
                   : AppColors.textLightSecondary,
