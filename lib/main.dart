@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'core/constants/app_constants.dart';
 import 'core/theme/app_theme.dart';
 import 'providers/auth_provider.dart';
+import 'providers/loan_provider.dart';
 import 'navigation/app_router.dart';
 
 void main() {
@@ -19,6 +20,9 @@ class LoanRequestApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider<AuthProvider>(
           create: (_) => AuthProvider(),
+        ),
+        ChangeNotifierProvider<LoanProvider>(
+          create: (_) => LoanProvider(),
         ),
       ],
       child: MaterialApp(
