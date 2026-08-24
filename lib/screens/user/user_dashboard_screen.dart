@@ -39,7 +39,7 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final currencyFormatter = NumberFormat.compactCurrency(symbol: '\$');
+    final currencyFormatter = NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 0);
 
     return Consumer<AuthProvider>(
       builder: (context, auth, child) {

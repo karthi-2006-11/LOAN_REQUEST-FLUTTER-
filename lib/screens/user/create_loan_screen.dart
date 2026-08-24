@@ -124,7 +124,7 @@ class _CreateLoanScreenState extends State<CreateLoanScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final currencyFormatter = NumberFormat.currency(symbol: '\$', decimalDigits: 2);
+    final currencyFormatter = NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 2);
 
     return Scaffold(
       appBar: AppBar(
@@ -171,11 +171,11 @@ class _CreateLoanScreenState extends State<CreateLoanScreen> {
                 TextFormField(
                   controller: _amountController,
                   keyboardType: TextInputType.number,
-                  decoration: InputDecoration(
-                    prefixIcon: const Icon(Icons.attach_money_rounded),
-                    suffixText: 'USD',
+                  decoration: const InputDecoration(
+                    prefixIcon: Icon(Icons.currency_rupee_rounded),
+                    suffixText: 'INR',
                     hintText: 'Enter amount (500 - 50,000)',
-                    helperText: 'Min: \$500  •  Max: \$50,000',
+                    helperText: 'Min: ₹500  •  Max: ₹50,000',
                   ),
                   validator: (val) {
                     if (val == null || val.trim().isEmpty) {
@@ -186,7 +186,7 @@ class _CreateLoanScreenState extends State<CreateLoanScreen> {
                       return 'Enter a valid number';
                     }
                     if (num < _minAmount || num > _maxAmount) {
-                      return 'Amount must be between \$500 and \$50,000';
+                      return 'Amount must be between ₹500 and ₹50,000';
                     }
                     return null;
                   },
@@ -199,7 +199,7 @@ class _CreateLoanScreenState extends State<CreateLoanScreen> {
                   divisions: 99,
                   activeColor: AppColors.primary,
                   inactiveColor: AppColors.primary.withValues(alpha: 0.15),
-                  label: '\$${_amountSliderValue.toStringAsFixed(0)}',
+                  label: '₹${_amountSliderValue.toStringAsFixed(0)}',
                   onChanged: _onSliderChanged,
                 ),
 
@@ -408,7 +408,7 @@ class _CreateLoanScreenState extends State<CreateLoanScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Calculated based on \$${_amountSliderValue.toStringAsFixed(0)} divided over $_selectedTenureMonths months.',
+                        'Calculated based on ₹${NumberFormat.currency(locale: 'en_IN', symbol: '', decimalDigits: 0).format(_amountSliderValue)} divided over $_selectedTenureMonths months.',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           fontSize: 11,
