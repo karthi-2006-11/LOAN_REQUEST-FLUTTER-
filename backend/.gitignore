@@ -1,0 +1,12 @@
+# Environment secrets
+.env
+*.env
+
+# Build & Dart tool
+.dart_tool/
+.packages
+pubspec.lock
+
+# Databases
+*.db
+backend_blackvault.db
