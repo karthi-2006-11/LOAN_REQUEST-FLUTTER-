@@ -7,8 +7,11 @@ import 'providers/auth_provider.dart';
 import 'providers/loan_provider.dart';
 import 'providers/notification_provider.dart';
 
-void main() {
+import 'services/migration_service.dart';
+
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await MigrationService.instance.runMigration();
   runApp(const LoanRequestApp());
 }
 

@@ -1,6 +1,6 @@
-import 'dart:convert';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import '../models/notification_model.dart';
+import '../services/database_service.dart';
 
 abstract class NotificationRepository {
   Future<NotificationModel> createNotification(NotificationModel notification);
@@ -13,99 +13,141 @@ abstract class NotificationRepository {
 }
 
 class LocalNotificationRepository implements NotificationRepository {
-  static const String _notificationsKey = 'key_notifications_data_v1';
+  final DatabaseService _databaseService;
 
-  Future<List<NotificationModel>> _getAllNotificationsFromStorage() async {
-    final prefs = await SharedPreferences.getInstance();
-    final jsonString = prefs.getString(_notificationsKey);
-    if (jsonString == null || jsonString.isEmpty) {
-      return [];
-    }
+  LocalNotificationRepository({DatabaseService? databaseService})
+      : _databaseService = databaseService ?? DatabaseService.instance;
 
-    try {
-      final List<dynamic> jsonList = jsonDecode(jsonString);
-      return jsonList
-          .map((item) => NotificationModel.fromJson(item as Map<String, dynamic>))
-          .toList();
-    } catch (_) {
-      return [];
-    }
+  Map<String, dynamic> _toSqlMap(NotificationModel n) {
+    return {
+      'id': n.id,
+      'userId': n.userId,
+      'title': n.title,
+      'message': n.message,
+      'type': n.type.toJson(),
+      'loanId': n.loanId,
+      'createdAt': n.createdAt.toIso8601String(),
+      'isRead': n.isRead ? 1 : 0,
+    };
   }
 
-  Future<bool> _saveNotificationsToStorage(List<NotificationModel> notifications) async {
-    final prefs = await SharedPreferences.getInstance();
-    final jsonList = notifications.map((n) => n.toJson()).toList();
-    return await prefs.setString(_notificationsKey, jsonEncode(jsonList));
+  NotificationModel _fromSqlMap(Map<String, dynamic> map) {
+    return NotificationModel(
+      id: map['id'] as String,
+      userId: map['userId'] as String,
+      title: map['title'] as String,
+      message: map['message'] as String,
+      type: NotificationTypeExtension.fromString(map['type'] as String? ?? 'system'),
+      loanId: map['loanId'] as String?,
+      createdAt: map['createdAt'] != null
+          ? DateTime.parse(map['createdAt'] as String)
+          : DateTime.now(),
+      isRead: (map['isRead'] as int? ?? 0) == 1,
+    );
   }
 
   @override
   Future<NotificationModel> createNotification(NotificationModel notification) async {
-    final notifications = await _getAllNotificationsFromStorage();
-    
-    // Protection against duplicate IDs or exact duplicate entries
-    final exists = notifications.any((n) => n.id == notification.id);
-    if (exists) {
+    final db = await _databaseService.database;
+
+    final existing = await db.query(
+      'notifications',
+      where: 'id = ?',
+      whereArgs: [notification.id],
+      limit: 1,
+    );
+    if (existing.isNotEmpty) {
       return notification;
     }
 
-    notifications.insert(0, notification);
-    await _saveNotificationsToStorage(notifications);
+    await db.insert(
+      'notifications',
+      _toSqlMap(notification),
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
     return notification;
   }
 
   @override
   Future<List<NotificationModel>> getUserNotifications(String userId) async {
-    final notifications = await _getAllNotificationsFromStorage();
-    return notifications.where((n) => n.userId == userId).toList()
-      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final db = await _databaseService.database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      'notifications',
+      where: 'userId = ?',
+      whereArgs: [userId],
+      orderBy: 'createdAt DESC',
+    );
+    return maps.map(_fromSqlMap).toList();
   }
 
   @override
   Future<List<NotificationModel>> getAdminNotifications() async {
-    final notifications = await _getAllNotificationsFromStorage();
-    return notifications.where((n) => n.userId == 'admin' || n.userId == 'system').toList()
-      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final db = await _databaseService.database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      'notifications',
+      where: "userId IN ('admin', 'system')",
+      orderBy: 'createdAt DESC',
+    );
+    return maps.map(_fromSqlMap).toList();
   }
 
   @override
   Future<bool> markAsRead(String notificationId) async {
-    final notifications = await _getAllNotificationsFromStorage();
-    final index = notifications.indexWhere((n) => n.id == notificationId);
-    if (index != -1) {
-      notifications[index] = notifications[index].copyWith(isRead: true);
-      return await _saveNotificationsToStorage(notifications);
-    }
-    return false;
+    final db = await _databaseService.database;
+    final count = await db.update(
+      'notifications',
+      {'isRead': 1},
+      where: 'id = ?',
+      whereArgs: [notificationId],
+    );
+    return count > 0;
   }
 
   @override
   Future<bool> markAllAsRead(String userId) async {
-    final notifications = await _getAllNotificationsFromStorage();
-    bool updated = false;
-    for (int i = 0; i < notifications.length; i++) {
-      if ((notifications[i].userId == userId || (userId == 'admin' && notifications[i].userId == 'system')) && !notifications[i].isRead) {
-        notifications[i] = notifications[i].copyWith(isRead: true);
-        updated = true;
-      }
-    }
-    if (updated) {
-      return await _saveNotificationsToStorage(notifications);
+    final db = await _databaseService.database;
+    if (userId == 'admin') {
+      await db.update(
+        'notifications',
+        {'isRead': 1},
+        where: "userId IN ('admin', 'system') AND isRead = 0",
+      );
+    } else {
+      await db.update(
+        'notifications',
+        {'isRead': 1},
+        where: 'userId = ? AND isRead = 0',
+        whereArgs: [userId],
+      );
     }
     return true;
   }
 
   @override
   Future<int> getUnreadCount(String userId) async {
-    final userNotifications = userId == 'admin'
-        ? await getAdminNotifications()
-        : await getUserNotifications(userId);
-    return userNotifications.where((n) => !n.isRead).length;
+    final db = await _databaseService.database;
+    final List<Map<String, dynamic>> result;
+    if (userId == 'admin') {
+      result = await db.rawQuery(
+        "SELECT COUNT(*) as count FROM notifications WHERE userId IN ('admin', 'system') AND isRead = 0",
+      );
+    } else {
+      result = await db.rawQuery(
+        "SELECT COUNT(*) as count FROM notifications WHERE userId = ? AND isRead = 0",
+        [userId],
+      );
+    }
+    return (result.first['count'] as int?) ?? 0;
   }
 
   @override
   Future<bool> deleteNotification(String notificationId) async {
-    final notifications = await _getAllNotificationsFromStorage();
-    notifications.removeWhere((n) => n.id == notificationId);
-    return await _saveNotificationsToStorage(notifications);
+    final db = await _databaseService.database;
+    final count = await db.delete(
+      'notifications',
+      where: 'id = ?',
+      whereArgs: [notificationId],
+    );
+    return count > 0;
   }
 }

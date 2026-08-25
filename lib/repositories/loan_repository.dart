@@ -1,8 +1,8 @@
-import 'dart:convert';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import '../models/loan_model.dart';
 import '../models/loan_priority.dart';
 import '../models/loan_status.dart';
+import '../services/database_service.dart';
 
 /// Abstract interface for Loan Repository operations.
 abstract class LoanRepository {
@@ -11,12 +11,16 @@ abstract class LoanRepository {
   Future<LoanModel?> getLoanById(String id);
   Future<LoanModel> createLoan(LoanModel loan);
   Future<LoanModel> updateLoanStatus(String id, LoanStatus newStatus);
+  Future<bool> deleteLoan(String id);
 }
 
-/// Local implementation of LoanRepository using SharedPreferences persistence
+/// SQLite implementation of LoanRepository using DatabaseService persistence
 /// and initial seed data for demo accounts.
 class LocalLoanRepository implements LoanRepository {
-  static const String _keyLoansData = 'key_loans_data_v1';
+  final DatabaseService _databaseService;
+
+  LocalLoanRepository({DatabaseService? databaseService})
+      : _databaseService = databaseService ?? DatabaseService.instance;
 
   // Seed data for the default user account (`USR-DEMO-101`)
   static final List<LoanModel> _seedLoans = [
@@ -44,77 +48,101 @@ class LocalLoanRepository implements LoanRepository {
     ),
   ];
 
-  Future<List<LoanModel>> _loadPersistedLoans() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final jsonString = prefs.getString(_keyLoansData);
-      if (jsonString == null || jsonString.isEmpty) {
-        // Initialize with seed data on first run
-        await _savePersistedLoans(_seedLoans);
-        return List.from(_seedLoans);
-      }
-      final List<dynamic> decoded = jsonDecode(jsonString) as List<dynamic>;
-      return decoded
-          .map((item) => LoanModel.fromJson(item as Map<String, dynamic>))
-          .toList();
-    } catch (_) {
-      return List.from(_seedLoans);
-    }
+  Future<Database> _getDb() async {
+    final db = await _databaseService.database;
+    await _ensureSeedData(db);
+    return db;
   }
 
-  Future<void> _savePersistedLoans(List<LoanModel> loans) async {
-    final prefs = await SharedPreferences.getInstance();
-    final encoded = jsonEncode(loans.map((l) => l.toJson()).toList());
-    await prefs.setString(_keyLoansData, encoded);
+  Future<void> _ensureSeedData(Database db) async {
+    final result = await db.rawQuery('SELECT COUNT(*) as count FROM loans');
+    final count = result.first['count'] as int?;
+    if (count == 0 || count == null) {
+      final batch = db.batch();
+      for (final seed in _seedLoans) {
+        batch.insert(
+          'loans',
+          seed.toJson(),
+          conflictAlgorithm: ConflictAlgorithm.ignore,
+        );
+      }
+      await batch.commit(noResult: true);
+    }
   }
 
   @override
   Future<List<LoanModel>> getAllLoans() async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    final loans = await _loadPersistedLoans();
-    loans.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    return loans;
+    final db = await _getDb();
+    final List<Map<String, dynamic>> maps = await db.query(
+      'loans',
+      orderBy: 'createdAt DESC',
+    );
+    return maps.map((map) => LoanModel.fromJson(map)).toList();
   }
 
   @override
   Future<List<LoanModel>> getUserLoans(String userId) async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    final loans = await _loadPersistedLoans();
-    final userLoans = loans.where((l) => l.userId == userId).toList();
-    userLoans.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    return userLoans;
+    final db = await _getDb();
+    final List<Map<String, dynamic>> maps = await db.query(
+      'loans',
+      where: 'userId = ?',
+      whereArgs: [userId],
+      orderBy: 'createdAt DESC',
+    );
+    return maps.map((map) => LoanModel.fromJson(map)).toList();
   }
 
   @override
   Future<LoanModel?> getLoanById(String id) async {
-    final loans = await _loadPersistedLoans();
-    try {
-      return loans.firstWhere((l) => l.id == id);
-    } catch (_) {
+    final db = await _getDb();
+    final List<Map<String, dynamic>> maps = await db.query(
+      'loans',
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (maps.isEmpty) {
       return null;
     }
+    return LoanModel.fromJson(maps.first);
   }
 
   @override
   Future<LoanModel> createLoan(LoanModel loan) async {
-    await Future.delayed(const Duration(milliseconds: 500));
-    final loans = await _loadPersistedLoans();
-    loans.insert(0, loan);
-    await _savePersistedLoans(loans);
+    final db = await _getDb();
+    await db.insert(
+      'loans',
+      loan.toJson(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
     return loan;
   }
 
   @override
   Future<LoanModel> updateLoanStatus(String id, LoanStatus newStatus) async {
-    await Future.delayed(const Duration(milliseconds: 400));
-    final loans = await _loadPersistedLoans();
-    final index = loans.indexWhere((l) => l.id == id);
-    if (index == -1) {
+    final db = await _getDb();
+    final existing = await getLoanById(id);
+    if (existing == null) {
       throw Exception('Loan request not found');
     }
-    final updated = loans[index].copyWith(status: newStatus);
-    loans[index] = updated;
-    await _savePersistedLoans(loans);
+    final updated = existing.copyWith(status: newStatus);
+    await db.update(
+      'loans',
+      {'status': newStatus.toJson()},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
     return updated;
+  }
+
+  @override
+  Future<bool> deleteLoan(String id) async {
+    final db = await _getDb();
+    final count = await db.delete(
+      'loans',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    return count > 0;
   }
 }
