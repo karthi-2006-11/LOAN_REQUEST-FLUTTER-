@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'package:crypto/crypto.dart';
+import 'dart:math';
 
 /// Represents a queued local business mutation waiting to be synchronized with the central backend.
 class SyncQueueItem {
@@ -84,10 +84,14 @@ class SyncQueueItem {
     );
   }
 
-  /// Generate a deterministic UUID v4 string for client operations
-  static String generateClientOperationId(String prefix) {
-    final timestamp = DateTime.now().microsecondsSinceEpoch;
-    final random = sha256.convert(utf8.encode('$prefix-$timestamp')).toString().substring(0, 16);
-    return 'OP-$prefix-$timestamp-$random';
+  /// Generate a genuine RFC 4122 compliant UUID v4 string for client operations
+  static String generateClientOperationId([String? prefix]) {
+    final random = Random.secure();
+    final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40; // Set version to 4
+    bytes[8] = (bytes[8] & 0x3f) | 0x80; // Set variant to IETF
+
+    final hex = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+    return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20, 32)}';
   }
 }

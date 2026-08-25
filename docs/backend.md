@@ -106,7 +106,7 @@ ENVIRONMENT=development
 | `/api/loans/:id` | `GET` | Yes | Customer / Admin | Get loan by ID (enforces data isolation) |
 | `/api/loans` | `POST` | Yes | Customer | Create loan (status defaults to `pending`) |
 | `/api/loans/:id` | `PATCH` | Yes | Customer / Admin | Update loan (Customer fields vs Admin status) |
-| `/api/sync/push` | `POST` | Yes | Any | Sync push placeholder (501 Not Implemented) |
+| `/api/sync/push` | `POST` | Yes | Customer / Admin | Process device -> server push operations with idempotency |
 | `/api/sync/pull` | `GET` | Yes | Any | Sync pull placeholder (501 Not Implemented) |
 
 ---

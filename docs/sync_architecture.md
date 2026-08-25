@@ -329,8 +329,8 @@ To prevent duplicate requests when network retries occur (e.g., client sends upl
 
 - **Phase 8.1**: Architecture & Sync Model Specification (Documentation).
 - **Phase 8.2 — Backend Foundation**: REST API & Database setup for central backend (Users, Loans, Activities, Notifications, Argon2id, JWT, Sync endpoints).
-- **Phase 8.3 — Local Sync Queue (Completed)**: Added `sync_queue` table to `DatabaseService` schema (version 2 with migration), created `LocalSyncQueueRepository` & `SyncQueueItem` model, and updated local repositories (`LocalLoanRepository`, `LocalLoanActivityRepository`, `LocalNotificationRepository`) to record mutations atomically inside SQLite transactions.
-- **Phase 8.4 — Push Synchronization**: Implement `SyncEngine` push loop sending `PENDING_SYNC` items from `sync_queue` to backend API.
+- **Phase 8.3 — Local Sync Queue**: Added `sync_queue` table to `DatabaseService` schema (version 2 with migration), created `LocalSyncQueueRepository` & `SyncQueueItem` model, and updated local repositories (`LocalLoanRepository`, `LocalLoanActivityRepository`, `LocalNotificationRepository`) to record mutations atomically inside SQLite transactions.
+- **Phase 8.4 — Push Synchronization (Completed)**: Created `SyncEngine` in `lib/services/sync_engine.dart` and implemented `SyncBackendController` at `POST /api/sync/push`. Enforces `clientOperationId` idempotency, role-based access control, and field ownership validation.
 - **Phase 8.5 — Pull Synchronization**: Implement `SyncEngine` pull loop fetching remote changes since `lastSyncedAt` and applying them to local SQLite.
 - **Phase 8.6 — Conflict Resolution**: Implement field-ownership conflict resolution logic and Admin status override rules.
 - **Phase 8.7 — Reliability & Recovery**: Implement network loss detection, exponential backoff retries, and offline queue recovery.

@@ -5,12 +5,14 @@ import '../config/env_config.dart';
 import '../controllers/auth_controller.dart';
 import '../controllers/health_controller.dart';
 import '../controllers/loan_controller.dart';
+import '../controllers/sync_backend_controller.dart';
 import '../middleware/auth_middleware.dart';
 
 Router buildApiRouter({
   required HealthController healthController,
   required AuthController authController,
   required LoanController loanController,
+  required SyncBackendController syncController,
   required EnvConfig config,
 }) {
   final router = Router();
@@ -22,32 +24,28 @@ Router buildApiRouter({
   router.post('/auth/register', authController.register);
   router.post('/auth/login', authController.login);
 
-  // 3. Authenticated Loan routes
+  // 3. Authenticated Loan & Sync routes
   final authMiddleware = buildAuthMiddleware(config);
-  final loanPipeline = const Pipeline().addMiddleware(authMiddleware);
+  final authenticatedPipeline = const Pipeline().addMiddleware(authMiddleware);
 
-  router.get('/loans', loanPipeline.addHandler((request) => loanController.getLoans(request)));
+  router.get('/loans', authenticatedPipeline.addHandler((request) => loanController.getLoans(request)));
 
   router.get('/loans/<id>', (Request request, String id) {
-    final handler = loanPipeline.addHandler((req) => loanController.getLoanById(req, id));
+    final handler = authenticatedPipeline.addHandler((req) => loanController.getLoanById(req, id));
     return handler(request);
   });
 
-  router.post('/loans', loanPipeline.addHandler((request) => loanController.createLoan(request)));
+  router.post('/loans', authenticatedPipeline.addHandler((request) => loanController.createLoan(request)));
 
   router.patch('/loans/<id>', (Request request, String id) {
-    final handler = loanPipeline.addHandler((req) => loanController.updateLoan(req, id));
+    final handler = authenticatedPipeline.addHandler((req) => loanController.updateLoan(req, id));
     return handler(request);
   });
 
-  // 4. Sync route placeholders (Unimplemented in Phase 8.2; returns 501 Not Implemented)
-  router.post('/sync/push', (Request request) async {
-    return Response(501, body: jsonEncode({
-      'success': false,
-      'error': {'code': 'NOT_IMPLEMENTED', 'message': 'Push sync is scheduled for Phase 8.4'}
-    }), headers: {'content-type': 'application/json'});
-  });
+  // 4. Authenticated Push Sync
+  router.post('/sync/push', authenticatedPipeline.addHandler((request) => syncController.handlePush(request)));
 
+  // 5. Unauthenticated Pull Sync placeholder (501 Not Implemented)
   router.get('/sync/pull', (Request request) async {
     return Response(501, body: jsonEncode({
       'success': false,

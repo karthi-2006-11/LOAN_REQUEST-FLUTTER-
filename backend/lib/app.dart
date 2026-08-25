@@ -4,6 +4,7 @@ import 'config/env_config.dart';
 import 'controllers/auth_controller.dart';
 import 'controllers/health_controller.dart';
 import 'controllers/loan_controller.dart';
+import 'controllers/sync_backend_controller.dart';
 import 'database/backend_database.dart';
 import 'middleware/cors_middleware.dart';
 import 'middleware/error_middleware.dart';
@@ -21,6 +22,7 @@ class BlackVaultBackendApp {
   final HealthController healthController;
   final AuthController authController;
   final LoanController loanController;
+  final SyncBackendController syncController;
 
   BlackVaultBackendApp._({
     required this.config,
@@ -31,6 +33,7 @@ class BlackVaultBackendApp {
     required this.healthController,
     required this.authController,
     required this.loanController,
+    required this.syncController,
   });
 
   factory BlackVaultBackendApp.create({EnvConfig? configOverride, BackendDatabase? databaseOverride}) {
@@ -46,6 +49,10 @@ class BlackVaultBackendApp {
       loanRepository: loanRepository,
       idempotencyRepository: idempotencyRepository,
     );
+    final syncController = SyncBackendController(
+      loanRepository: loanRepository,
+      idempotencyRepository: idempotencyRepository,
+    );
 
     return BlackVaultBackendApp._(
       config: config,
@@ -56,6 +63,7 @@ class BlackVaultBackendApp {
       healthController: healthController,
       authController: authController,
       loanController: loanController,
+      syncController: syncController,
     );
   }
 
@@ -65,6 +73,7 @@ class BlackVaultBackendApp {
       healthController: healthController,
       authController: authController,
       loanController: loanController,
+      syncController: syncController,
       config: config,
     );
 

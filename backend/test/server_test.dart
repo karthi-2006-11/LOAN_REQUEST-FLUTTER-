@@ -247,12 +247,128 @@ void main() {
       expect(allLoans.length, equals(1));
     });
 
-    test('6. Unimplemented sync placeholders return HTTP 501 Not Implemented', () async {
-      final pushRes = await http.post(Uri.parse('$baseUrl/sync/push'));
-      expect(pushRes.statusCode, equals(501));
+    test('6. Sync Endpoints: Push sync requires authentication; Pull sync returns HTTP 501 Not Implemented', () async {
+      final unauthPushRes = await http.post(Uri.parse('$baseUrl/sync/push'));
+      expect(unauthPushRes.statusCode, equals(401));
 
       final pullRes = await http.get(Uri.parse('$baseUrl/sync/pull'));
       expect(pullRes.statusCode, equals(501));
+    });
+
+    test('7. Push Sync Endpoint: Processes push operations with idempotency and field ownership enforcement', () async {
+      final cRes = await http.post(
+        Uri.parse('$baseUrl/auth/register'),
+        headers: {'content-type': 'application/json'},
+        body: jsonEncode({'email': 'push@test.com', 'password': 'pass1234', 'fullName': 'Push User', 'role': 'CUSTOMER'}),
+      );
+      final cToken = jsonDecode(cRes.body)['data']['token'] as String;
+      final cUser = jsonDecode(cRes.body)['data']['user'];
+      final cUserId = cUser['id'] as String;
+
+      final aRes = await http.post(
+        Uri.parse('$baseUrl/auth/register'),
+        headers: {'content-type': 'application/json'},
+        body: jsonEncode({'email': 'pushadmin@test.com', 'password': 'pass1234', 'fullName': 'Push Admin', 'role': 'ADMIN'}),
+      );
+      final aToken = jsonDecode(aRes.body)['data']['token'] as String;
+
+      // 1. Customer pushes new loan creation
+      final pushRes1 = await http.post(
+        Uri.parse('$baseUrl/sync/push'),
+        headers: {'content-type': 'application/json', 'authorization': 'Bearer $cToken'},
+        body: jsonEncode({
+          'operations': [
+            {
+              'clientOperationId': 'OP-PUSH-001',
+              'entityType': 'loan',
+              'entityId': 'LOAN-PUSH-001',
+              'operation': 'CREATE',
+              'payload': {
+                'id': 'LOAN-PUSH-001',
+                'userId': cUserId,
+                'userName': 'Push User',
+                'amount': 18000.0,
+                'tenureMonths': 12,
+                'purpose': 'Inventory Expansion',
+                'priority': 'high',
+              },
+            }
+          ]
+        }),
+      );
+      expect(pushRes1.statusCode, equals(200));
+      final body1 = jsonDecode(pushRes1.body);
+      expect(body1['success'], isTrue);
+      expect(body1['results'][0]['status'], equals('SYNCED'));
+
+      // Verify central backend stored loan
+      final savedLoan = await testApp.loanRepository.getLoanById('LOAN-PUSH-001');
+      expect(savedLoan, isNotNull);
+      expect(savedLoan!.amount, equals(18000.0));
+
+      // 2. Retry push with same clientOperationId -> Idempotent replay
+      final pushRes2 = await http.post(
+        Uri.parse('$baseUrl/sync/push'),
+        headers: {'content-type': 'application/json', 'authorization': 'Bearer $cToken'},
+        body: jsonEncode({
+          'operations': [
+            {
+              'clientOperationId': 'OP-PUSH-001',
+              'entityType': 'loan',
+              'entityId': 'LOAN-PUSH-001',
+              'operation': 'CREATE',
+              'payload': {},
+            }
+          ]
+        }),
+      );
+      expect(pushRes2.statusCode, equals(200));
+      final body2 = jsonDecode(pushRes2.body);
+      expect(body2['results'][0]['status'], equals('SYNCED'));
+      expect(body2['results'][0]['message'], contains('Idempotent replay'));
+
+      // 3. Customer attempts to set status = "approved" via push -> CONFLICT
+      final pushRes3 = await http.post(
+        Uri.parse('$baseUrl/sync/push'),
+        headers: {'content-type': 'application/json', 'authorization': 'Bearer $cToken'},
+        body: jsonEncode({
+          'operations': [
+            {
+              'clientOperationId': 'OP-PUSH-FORBIDDEN',
+              'entityType': 'loan',
+              'entityId': 'LOAN-PUSH-001',
+              'operation': 'UPDATE',
+              'payload': {'status': 'approved'},
+            }
+          ]
+        }),
+      );
+      expect(pushRes3.statusCode, equals(200));
+      final body3 = jsonDecode(pushRes3.body);
+      expect(body3['results'][0]['status'], equals('CONFLICT'));
+
+      // 4. Admin updates status = "approved" via push -> SYNCED
+      final pushRes4 = await http.post(
+        Uri.parse('$baseUrl/sync/push'),
+        headers: {'content-type': 'application/json', 'authorization': 'Bearer $aToken'},
+        body: jsonEncode({
+          'operations': [
+            {
+              'clientOperationId': 'OP-PUSH-ADMIN-OK',
+              'entityType': 'loan',
+              'entityId': 'LOAN-PUSH-001',
+              'operation': 'UPDATE',
+              'payload': {'status': 'approved'},
+            }
+          ]
+        }),
+      );
+      expect(pushRes4.statusCode, equals(200));
+      final body4 = jsonDecode(pushRes4.body);
+      expect(body4['results'][0]['status'], equals('SYNCED'));
+
+      final approvedLoan = await testApp.loanRepository.getLoanById('LOAN-PUSH-001');
+      expect(approvedLoan!.status, equals('approved'));
     });
   });
 }
