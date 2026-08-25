@@ -9,7 +9,7 @@ class DatabaseService {
   DatabaseService._internal();
 
   static const String _dbName = 'blackvault.db';
-  static const int _dbVersion = 1;
+  static const int _dbVersion = 2;
 
   Database? _database;
 
@@ -36,12 +36,40 @@ class DatabaseService {
       path,
       version: _dbVersion,
       onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
       onConfigure: _onConfigure,
     );
   }
 
   Future<void> _onConfigure(Database db) async {
     await db.execute('PRAGMA foreign_keys = ON;');
+  }
+
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await _createSyncQueueTables(db);
+    }
+  }
+
+  static Future<void> _createSyncQueueTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS sync_queue (
+        id TEXT PRIMARY KEY,
+        entityType TEXT NOT NULL,
+        entityId TEXT NOT NULL,
+        operation TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        clientOperationId TEXT NOT NULL UNIQUE,
+        createdAt TEXT NOT NULL,
+        retryCount INTEGER NOT NULL DEFAULT 0,
+        lastAttemptAt TEXT,
+        status TEXT NOT NULL DEFAULT 'PENDING_SYNC',
+        error TEXT
+      )
+    ''');
+
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON sync_queue(status);');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_sync_queue_createdAt ON sync_queue(createdAt);');
   }
 
   Future<void> _onCreate(Database db, int version) async {
@@ -100,19 +128,16 @@ class DatabaseService {
       )
     ''');
 
-    // 5. Indexes for query optimization
-    await db.execute(
-        'CREATE INDEX IF NOT EXISTS idx_loans_userId ON loans(userId);');
-    await db.execute(
-        'CREATE INDEX IF NOT EXISTS idx_loans_status ON loans(status);');
-    await db.execute(
-        'CREATE INDEX IF NOT EXISTS idx_loan_activities_loanId ON loan_activities(loanId);');
-    await db.execute(
-        'CREATE INDEX IF NOT EXISTS idx_loan_activities_userId ON loan_activities(userId);');
-    await db.execute(
-        'CREATE INDEX IF NOT EXISTS idx_notifications_userId ON notifications(userId);');
-    await db.execute(
-        'CREATE INDEX IF NOT EXISTS idx_notifications_loanId ON notifications(loanId);');
+    // 5. sync_queue table
+    await _createSyncQueueTables(db);
+
+    // 6. Indexes for query optimization
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_loans_userId ON loans(userId);');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_loans_status ON loans(status);');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_loan_activities_loanId ON loan_activities(loanId);');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_loan_activities_userId ON loan_activities(userId);');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_notifications_userId ON notifications(userId);');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_notifications_loanId ON notifications(loanId);');
   }
 
   /// Close database connection

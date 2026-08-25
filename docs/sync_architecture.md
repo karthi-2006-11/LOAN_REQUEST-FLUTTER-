@@ -327,9 +327,9 @@ To prevent duplicate requests when network retries occur (e.g., client sends upl
 
 ## 14. Phase 8 Implementation Roadmap
 
-- **Phase 8.1 (Current)**: Architecture & Sync Model Specification (Documentation).
-- **Phase 8.2 — Backend Foundation**: REST API & Database setup for central backend (Users, Loans, Activities, Notifications, Sync endpoints).
-- **Phase 8.3 — Local Sync Queue**: Add `sync_queue` table to `DatabaseService` schema and update local repositories to enqueue mutations atomically.
+- **Phase 8.1**: Architecture & Sync Model Specification (Documentation).
+- **Phase 8.2 — Backend Foundation**: REST API & Database setup for central backend (Users, Loans, Activities, Notifications, Argon2id, JWT, Sync endpoints).
+- **Phase 8.3 — Local Sync Queue (Completed)**: Added `sync_queue` table to `DatabaseService` schema (version 2 with migration), created `LocalSyncQueueRepository` & `SyncQueueItem` model, and updated local repositories (`LocalLoanRepository`, `LocalLoanActivityRepository`, `LocalNotificationRepository`) to record mutations atomically inside SQLite transactions.
 - **Phase 8.4 — Push Synchronization**: Implement `SyncEngine` push loop sending `PENDING_SYNC` items from `sync_queue` to backend API.
 - **Phase 8.5 — Pull Synchronization**: Implement `SyncEngine` pull loop fetching remote changes since `lastSyncedAt` and applying them to local SQLite.
 - **Phase 8.6 — Conflict Resolution**: Implement field-ownership conflict resolution logic and Admin status override rules.

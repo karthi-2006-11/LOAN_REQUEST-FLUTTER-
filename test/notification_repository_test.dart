@@ -20,7 +20,7 @@ class TestNotificationDatabaseService implements DatabaseService {
     }
     _db = await openDatabase(
       dbPath,
-      version: 1,
+      version: 2,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE IF NOT EXISTS notifications (
@@ -34,8 +34,24 @@ class TestNotificationDatabaseService implements DatabaseService {
             isRead INTEGER NOT NULL DEFAULT 0
           )
         ''');
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS sync_queue (
+            id TEXT PRIMARY KEY,
+            entityType TEXT NOT NULL,
+            entityId TEXT NOT NULL,
+            operation TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            clientOperationId TEXT NOT NULL UNIQUE,
+            createdAt TEXT NOT NULL,
+            retryCount INTEGER NOT NULL DEFAULT 0,
+            lastAttemptAt TEXT,
+            status TEXT NOT NULL DEFAULT 'PENDING_SYNC',
+            error TEXT
+          )
+        ''');
         await db.execute('CREATE INDEX IF NOT EXISTS idx_notifications_userId ON notifications(userId);');
         await db.execute('CREATE INDEX IF NOT EXISTS idx_notifications_loanId ON notifications(loanId);');
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON sync_queue(status);');
       },
     );
     return _db!;

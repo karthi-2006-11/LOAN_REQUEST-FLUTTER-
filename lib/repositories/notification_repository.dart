@@ -1,5 +1,6 @@
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import '../models/notification_model.dart';
+import '../models/sync_queue_item.dart';
 import '../services/database_service.dart';
 
 abstract class NotificationRepository {
@@ -60,11 +61,31 @@ class LocalNotificationRepository implements NotificationRepository {
       return notification;
     }
 
-    await db.insert(
-      'notifications',
-      _toSqlMap(notification),
-      conflictAlgorithm: ConflictAlgorithm.ignore,
-    );
+    final clientOpId = SyncQueueItem.generateClientOperationId('createNotif-${notification.id}');
+    final now = DateTime.now();
+
+    await db.transaction((txn) async {
+      await txn.insert(
+        'notifications',
+        _toSqlMap(notification),
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
+
+      await txn.insert(
+        'sync_queue',
+        SyncQueueItem(
+          id: 'SQ-${now.microsecondsSinceEpoch}',
+          entityType: 'notification',
+          entityId: notification.id,
+          operation: 'CREATE',
+          payload: notification.toJson(),
+          clientOperationId: clientOpId,
+          createdAt: now,
+        ).toSqlMap(),
+        conflictAlgorithm: ConflictAlgorithm.fail,
+      );
+    });
+
     return notification;
   }
 
@@ -94,32 +115,75 @@ class LocalNotificationRepository implements NotificationRepository {
   @override
   Future<bool> markAsRead(String notificationId) async {
     final db = await _databaseService.database;
-    final count = await db.update(
-      'notifications',
-      {'isRead': 1},
-      where: 'id = ?',
-      whereArgs: [notificationId],
-    );
+    final clientOpId = SyncQueueItem.generateClientOperationId('markRead-$notificationId');
+    final now = DateTime.now();
+    int count = 0;
+
+    await db.transaction((txn) async {
+      count = await txn.update(
+        'notifications',
+        {'isRead': 1},
+        where: 'id = ?',
+        whereArgs: [notificationId],
+      );
+
+      if (count > 0) {
+        await txn.insert(
+          'sync_queue',
+          SyncQueueItem(
+            id: 'SQ-${now.microsecondsSinceEpoch}',
+            entityType: 'notification',
+            entityId: notificationId,
+            operation: 'UPDATE',
+            payload: {'id': notificationId, 'isRead': true},
+            clientOperationId: clientOpId,
+            createdAt: now,
+          ).toSqlMap(),
+          conflictAlgorithm: ConflictAlgorithm.fail,
+        );
+      }
+    });
+
     return count > 0;
   }
 
   @override
   Future<bool> markAllAsRead(String userId) async {
     final db = await _databaseService.database;
-    if (userId == 'admin') {
-      await db.update(
-        'notifications',
-        {'isRead': 1},
-        where: "userId IN ('admin', 'system') AND isRead = 0",
+    final clientOpId = SyncQueueItem.generateClientOperationId('markAllRead-$userId');
+    final now = DateTime.now();
+
+    await db.transaction((txn) async {
+      if (userId == 'admin') {
+        await txn.update(
+          'notifications',
+          {'isRead': 1},
+          where: "userId IN ('admin', 'system') AND isRead = 0",
+        );
+      } else {
+        await txn.update(
+          'notifications',
+          {'isRead': 1},
+          where: 'userId = ? AND isRead = 0',
+          whereArgs: [userId],
+        );
+      }
+
+      await txn.insert(
+        'sync_queue',
+        SyncQueueItem(
+          id: 'SQ-${now.microsecondsSinceEpoch}',
+          entityType: 'notification',
+          entityId: 'ALL-$userId',
+          operation: 'UPDATE',
+          payload: {'userId': userId, 'isRead': true},
+          clientOperationId: clientOpId,
+          createdAt: now,
+        ).toSqlMap(),
+        conflictAlgorithm: ConflictAlgorithm.fail,
       );
-    } else {
-      await db.update(
-        'notifications',
-        {'isRead': 1},
-        where: 'userId = ? AND isRead = 0',
-        whereArgs: [userId],
-      );
-    }
+    });
+
     return true;
   }
 
@@ -143,11 +207,34 @@ class LocalNotificationRepository implements NotificationRepository {
   @override
   Future<bool> deleteNotification(String notificationId) async {
     final db = await _databaseService.database;
-    final count = await db.delete(
-      'notifications',
-      where: 'id = ?',
-      whereArgs: [notificationId],
-    );
+    final clientOpId = SyncQueueItem.generateClientOperationId('deleteNotif-$notificationId');
+    final now = DateTime.now();
+    int count = 0;
+
+    await db.transaction((txn) async {
+      count = await txn.delete(
+        'notifications',
+        where: 'id = ?',
+        whereArgs: [notificationId],
+      );
+
+      if (count > 0) {
+        await txn.insert(
+          'sync_queue',
+          SyncQueueItem(
+            id: 'SQ-${now.microsecondsSinceEpoch}',
+            entityType: 'notification',
+            entityId: notificationId,
+            operation: 'DELETE',
+            payload: {'id': notificationId},
+            clientOperationId: clientOpId,
+            createdAt: now,
+          ).toSqlMap(),
+          conflictAlgorithm: ConflictAlgorithm.fail,
+        );
+      }
+    });
+
     return count > 0;
   }
 }

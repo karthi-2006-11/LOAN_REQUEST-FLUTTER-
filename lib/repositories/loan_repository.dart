@@ -2,6 +2,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import '../models/loan_model.dart';
 import '../models/loan_priority.dart';
 import '../models/loan_status.dart';
+import '../models/sync_queue_item.dart';
 import '../services/database_service.dart';
 
 /// Abstract interface for Loan Repository operations.
@@ -15,7 +16,7 @@ abstract class LoanRepository {
 }
 
 /// SQLite implementation of LoanRepository using DatabaseService persistence
-/// and initial seed data for demo accounts.
+/// and atomic sync_queue mutation tracking.
 class LocalLoanRepository implements LoanRepository {
   final DatabaseService _databaseService;
 
@@ -110,11 +111,31 @@ class LocalLoanRepository implements LoanRepository {
   @override
   Future<LoanModel> createLoan(LoanModel loan) async {
     final db = await _getDb();
-    await db.insert(
-      'loans',
-      loan.toJson(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    final clientOpId = SyncQueueItem.generateClientOperationId('createLoan-${loan.id}');
+    final now = DateTime.now();
+
+    await db.transaction((txn) async {
+      await txn.insert(
+        'loans',
+        loan.toJson(),
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+
+      await txn.insert(
+        'sync_queue',
+        SyncQueueItem(
+          id: 'SQ-${now.microsecondsSinceEpoch}',
+          entityType: 'loan',
+          entityId: loan.id,
+          operation: 'CREATE',
+          payload: loan.toJson(),
+          clientOperationId: clientOpId,
+          createdAt: now,
+        ).toSqlMap(),
+        conflictAlgorithm: ConflictAlgorithm.fail,
+      );
+    });
+
     return loan;
   }
 
@@ -126,23 +147,66 @@ class LocalLoanRepository implements LoanRepository {
       throw Exception('Loan request not found');
     }
     final updated = existing.copyWith(status: newStatus);
-    await db.update(
-      'loans',
-      {'status': newStatus.toJson()},
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    final clientOpId = SyncQueueItem.generateClientOperationId('updateStatus-$id');
+    final now = DateTime.now();
+
+    await db.transaction((txn) async {
+      await txn.update(
+        'loans',
+        {'status': newStatus.toJson()},
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+
+      await txn.insert(
+        'sync_queue',
+        SyncQueueItem(
+          id: 'SQ-${now.microsecondsSinceEpoch}',
+          entityType: 'loan',
+          entityId: id,
+          operation: 'UPDATE',
+          payload: {'status': newStatus.toJson()},
+          clientOperationId: clientOpId,
+          createdAt: now,
+        ).toSqlMap(),
+        conflictAlgorithm: ConflictAlgorithm.fail,
+      );
+    });
+
     return updated;
   }
 
   @override
   Future<bool> deleteLoan(String id) async {
     final db = await _getDb();
-    final count = await db.delete(
-      'loans',
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    final clientOpId = SyncQueueItem.generateClientOperationId('deleteLoan-$id');
+    final now = DateTime.now();
+    int count = 0;
+
+    await db.transaction((txn) async {
+      count = await txn.delete(
+        'loans',
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+
+      if (count > 0) {
+        await txn.insert(
+          'sync_queue',
+          SyncQueueItem(
+            id: 'SQ-${now.microsecondsSinceEpoch}',
+            entityType: 'loan',
+            entityId: id,
+            operation: 'DELETE',
+            payload: {'id': id},
+            clientOperationId: clientOpId,
+            createdAt: now,
+          ).toSqlMap(),
+          conflictAlgorithm: ConflictAlgorithm.fail,
+        );
+      }
+    });
+
     return count > 0;
   }
 }

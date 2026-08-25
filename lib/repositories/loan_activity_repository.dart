@@ -1,5 +1,6 @@
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import '../models/loan_activity_model.dart';
+import '../models/sync_queue_item.dart';
 import '../services/database_service.dart';
 
 abstract class LoanActivityRepository {
@@ -18,11 +19,31 @@ class LocalLoanActivityRepository implements LoanActivityRepository {
   @override
   Future<LoanActivityModel> addActivity(LoanActivityModel activity) async {
     final db = await _databaseService.database;
-    await db.insert(
-      'loan_activities',
-      activity.toJson(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    final clientOpId = SyncQueueItem.generateClientOperationId('addActivity-${activity.id}');
+    final now = DateTime.now();
+
+    await db.transaction((txn) async {
+      await txn.insert(
+        'loan_activities',
+        activity.toJson(),
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+
+      await txn.insert(
+        'sync_queue',
+        SyncQueueItem(
+          id: 'SQ-${now.microsecondsSinceEpoch}',
+          entityType: 'loan_activity',
+          entityId: activity.id,
+          operation: 'CREATE',
+          payload: activity.toJson(),
+          clientOperationId: clientOpId,
+          createdAt: now,
+        ).toSqlMap(),
+        conflictAlgorithm: ConflictAlgorithm.fail,
+      );
+    });
+
     return activity;
   }
 
