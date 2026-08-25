@@ -111,11 +111,27 @@ class BackendDatabase {
       )
     ''');
 
+    // 6. sync_changes table (Monotonically increasing serverVersion log)
+    await database.execute('''
+      CREATE TABLE IF NOT EXISTS sync_changes (
+        serverVersion INTEGER PRIMARY KEY AUTOINCREMENT,
+        entityType TEXT NOT NULL,
+        entityId TEXT NOT NULL,
+        operation TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        userId TEXT NOT NULL,
+        originDeviceId TEXT,
+        createdAt TEXT NOT NULL
+      )
+    ''');
+
     // Indexes
     await database.execute('CREATE INDEX IF NOT EXISTS idx_backend_users_email ON users(email);');
     await database.execute('CREATE INDEX IF NOT EXISTS idx_backend_loans_userId ON loans(userId);');
     await database.execute('CREATE INDEX IF NOT EXISTS idx_backend_loans_status ON loans(status);');
     await database.execute('CREATE INDEX IF NOT EXISTS idx_backend_idempotency_createdAt ON idempotency_records(createdAt);');
+    await database.execute('CREATE INDEX IF NOT EXISTS idx_sync_changes_version ON sync_changes(serverVersion);');
+    await database.execute('CREATE INDEX IF NOT EXISTS idx_sync_changes_user ON sync_changes(userId);');
   }
 
   Future<void> close() async {

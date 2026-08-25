@@ -9,6 +9,9 @@ abstract class SyncQueueRepository {
   Future<bool> updateStatus(String id, String status, {String? error, Transaction? txn});
   Future<bool> incrementRetry(String id, {String? error, Transaction? txn});
   Future<bool> deleteQueueItem(String id, {Transaction? txn});
+  Future<int> getLastAppliedServerVersion();
+  Future<void> updateLastAppliedServerVersion(int version, {DatabaseExecutor? txn});
+  Future<bool> hasPendingLocalMutation(String entityType, String entityId, {DatabaseExecutor? txn});
 }
 
 class LocalSyncQueueRepository implements SyncQueueRepository {
@@ -104,5 +107,42 @@ class LocalSyncQueueRepository implements SyncQueueRepository {
       whereArgs: [id],
     );
     return count > 0;
+  }
+
+  @override
+  Future<int> getLastAppliedServerVersion() async {
+    final db = await _databaseService.database;
+    final maps = await db.query(
+      'sync_metadata',
+      where: "key = 'lastAppliedServerVersion'",
+      limit: 1,
+    );
+    if (maps.isEmpty) return 0;
+    return int.tryParse(maps.first['value'] as String) ?? 0;
+  }
+
+  @override
+  Future<void> updateLastAppliedServerVersion(int version, {DatabaseExecutor? txn}) async {
+    final executor = txn ?? await _databaseService.database;
+    await executor.insert(
+      'sync_metadata',
+      {
+        'key': 'lastAppliedServerVersion',
+        'value': version.toString(),
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  @override
+  Future<bool> hasPendingLocalMutation(String entityType, String entityId, {DatabaseExecutor? txn}) async {
+    final executor = txn ?? await _databaseService.database;
+    final maps = await executor.query(
+      'sync_queue',
+      where: "entityType = ? AND entityId = ? AND status IN ('PENDING_SYNC', 'SYNCING')",
+      whereArgs: [entityType, entityId],
+      limit: 1,
+    );
+    return maps.isNotEmpty;
   }
 }

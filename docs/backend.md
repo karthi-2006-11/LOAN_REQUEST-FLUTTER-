@@ -107,7 +107,7 @@ ENVIRONMENT=development
 | `/api/loans` | `POST` | Yes | Customer | Create loan (status defaults to `pending`) |
 | `/api/loans/:id` | `PATCH` | Yes | Customer / Admin | Update loan (Customer fields vs Admin status) |
 | `/api/sync/push` | `POST` | Yes | Customer / Admin | Process device -> server push operations with idempotency |
-| `/api/sync/pull` | `GET` | Yes | Any | Sync pull placeholder (501 Not Implemented) |
+| `/api/sync/pull` | `GET` | Yes | Customer / Admin | Retrieve server changes after cursor (since, limit) |
 
 ---
 

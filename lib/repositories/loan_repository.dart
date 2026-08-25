@@ -209,4 +209,19 @@ class LocalLoanRepository implements LoanRepository {
 
     return count > 0;
   }
+
+  /// Apply a pulled server-originated loan change directly to local SQLite without enqueueing sync_queue items.
+  Future<void> applyServerLoan(LoanModel loan, String operation, {DatabaseExecutor? txn}) async {
+    final executor = txn ?? await _getDb();
+    if (operation == 'CREATE' || operation == 'UPDATE') {
+      final existing = await executor.query('loans', where: 'id = ?', whereArgs: [loan.id], limit: 1);
+      if (existing.isEmpty) {
+        await executor.insert('loans', loan.toJson(), conflictAlgorithm: ConflictAlgorithm.replace);
+      } else {
+        await executor.update('loans', loan.toJson(), where: 'id = ?', whereArgs: [loan.id]);
+      }
+    } else if (operation == 'DELETE') {
+      await executor.delete('loans', where: 'id = ?', whereArgs: [loan.id]);
+    }
+  }
 }

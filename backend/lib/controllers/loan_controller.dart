@@ -127,15 +127,31 @@ class LoanController {
         updatedAt: now,
       );
 
-      final created = await loanRepository.createLoan(newLoan);
-      final responseMap = {'success': true, 'data': created.toJson()};
+      final db = await loanRepository.database.db;
+      LoanServerModel? created;
+
+      await db.transaction((txn) async {
+        await txn.insert('loans', newLoan.toSqlMap());
+        created = newLoan;
+
+        await txn.insert('sync_changes', {
+          'entityType': 'loan',
+          'entityId': id,
+          'operation': 'CREATE',
+          'payload': jsonEncode(newLoan.toJson()),
+          'userId': authUser.userId,
+          'createdAt': now.toIso8601String(),
+        });
+      });
+
+      final responseMap = {'success': true, 'data': created!.toJson()};
       final responseStr = jsonEncode(responseMap);
 
       // Save Idempotency record if operation ID provided
       if (clientOpId != null && clientOpId.isNotEmpty) {
         await idempotencyRepository.saveRecord(IdempotencyRecord(
           clientOperationId: clientOpId,
-          entityId: created.id,
+          entityId: created!.id,
           operationType: 'CREATE_LOAN',
           responseCode: 201,
           responsePayload: responseStr,
@@ -193,8 +209,27 @@ class LoanController {
         updatedAt: DateTime.now(),
       );
 
-      final saved = await loanRepository.updateLoan(updated);
-      return _jsonResponse(200, {'success': true, 'data': saved.toJson()});
+      final db = await loanRepository.database.db;
+
+      await db.transaction((txn) async {
+        await txn.update(
+          'loans',
+          updated.toSqlMap(),
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+
+        await txn.insert('sync_changes', {
+          'entityType': 'loan',
+          'entityId': id,
+          'operation': 'UPDATE',
+          'payload': jsonEncode(updated.toJson()),
+          'userId': existingLoan.userId, // Record under loan owner's userId so customer pull receives admin updates!
+          'createdAt': DateTime.now().toIso8601String(),
+        });
+      });
+
+      return _jsonResponse(200, {'success': true, 'data': updated.toJson()});
     } catch (e) {
       return _jsonResponse(500, {'success': false, 'error': {'code': 'SERVER_ERROR', 'message': e.toString()}});
     }

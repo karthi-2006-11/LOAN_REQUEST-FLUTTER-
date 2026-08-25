@@ -1,7 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+import '../models/loan_model.dart';
+import '../models/loan_priority.dart';
+import '../models/loan_status.dart';
+import '../repositories/loan_repository.dart';
 import '../repositories/sync_queue_repository.dart';
+import 'database_service.dart';
 
 class SyncEngineResult {
   final int totalProcessed;
@@ -19,21 +26,42 @@ class SyncEngineResult {
   });
 }
 
-/// Synchronization Engine managing Device -> Server push sync operations.
+class SyncEnginePullResult {
+  final int totalProcessed;
+  final int lastAppliedVersion;
+  final bool hasMore;
+  final String? globalError;
+
+  SyncEnginePullResult({
+    required this.totalProcessed,
+    required this.lastAppliedVersion,
+    required this.hasMore,
+    this.globalError,
+  });
+}
+
+/// Synchronization Engine managing Device <-> Server synchronization operations.
 class SyncEngine {
   final SyncQueueRepository _queueRepository;
+  final LocalLoanRepository _loanRepository;
+  final DatabaseService _databaseService;
   final http.Client _httpClient;
 
   SyncEngine({
     SyncQueueRepository? queueRepository,
+    LocalLoanRepository? loanRepository,
+    DatabaseService? databaseService,
     http.Client? httpClient,
   })  : _queueRepository = queueRepository ?? LocalSyncQueueRepository(),
+        _loanRepository = loanRepository ?? LocalLoanRepository(),
+        _databaseService = databaseService ?? DatabaseService.instance,
         _httpClient = httpClient ?? http.Client();
 
   /// Push local PENDING_SYNC operations to the central backend.
   Future<SyncEngineResult> pushPending({
     required String baseUrl,
     required String authToken,
+    String? deviceId,
     int batchSize = 50,
   }) async {
     if (authToken.isEmpty) {
@@ -68,6 +96,7 @@ class SyncEngine {
         'entityId': item.entityId,
         'operation': item.operation,
         'payload': item.payload,
+        'deviceId': deviceId,
         'createdAt': item.createdAt.toIso8601String(),
       }).toList(),
     };
@@ -87,7 +116,6 @@ class SyncEngine {
       final statusCode = response.statusCode;
 
       if (statusCode == 401) {
-        // Authentication error: Revert items to PENDING_SYNC without extra retry penalty
         for (final item in pendingItems) {
           await _queueRepository.updateStatus(item.id, 'PENDING_SYNC', error: 'Authentication required');
         }
@@ -101,7 +129,6 @@ class SyncEngine {
       }
 
       if (statusCode == 400 || statusCode == 403 || statusCode == 409 || statusCode == 422) {
-        // Authorization / Business rejection: Mark items as CONFLICT to prevent infinite retries
         for (final item in pendingItems) {
           await _queueRepository.updateStatus(
             item.id,
@@ -119,7 +146,6 @@ class SyncEngine {
       }
 
       if (statusCode >= 500) {
-        // Transient server errors (500, 502, 503, 504): Increment retry count and preserve queue items
         for (final item in pendingItems) {
           await _queueRepository.incrementRetry(
             item.id,
@@ -204,7 +230,6 @@ class SyncEngine {
         conflictCount: conflicts,
       );
     } catch (e) {
-      // Catch SocketException, TimeoutException, etc.
       for (final item in pendingItems) {
         await _queueRepository.incrementRetry(item.id, error: e.toString());
       }
@@ -213,6 +238,195 @@ class SyncEngine {
         syncedCount: 0,
         failedCount: pendingItems.length,
         conflictCount: 0,
+        globalError: e.toString(),
+      );
+    }
+  }
+
+  /// Pull server changes after the last applied serverVersion cursor and apply them atomically to local SQLite.
+  Future<SyncEnginePullResult> pullChanges({
+    required String baseUrl,
+    required String authToken,
+    String? deviceId,
+    int limit = 50,
+  }) async {
+    if (authToken.isEmpty) {
+      final currentVersion = await _queueRepository.getLastAppliedServerVersion();
+      return SyncEnginePullResult(
+        totalProcessed: 0,
+        lastAppliedVersion: currentVersion,
+        hasMore: false,
+        globalError: 'UNAUTHORIZED: Missing auth token',
+      );
+    }
+
+    final sinceVersion = await _queueRepository.getLastAppliedServerVersion();
+    var uriStr = '$baseUrl/api/sync/pull?since=$sinceVersion&limit=$limit';
+    if (deviceId != null && deviceId.isNotEmpty) {
+      uriStr += '&deviceId=$deviceId';
+    }
+    final Uri pullUri = Uri.parse(uriStr);
+
+    try {
+      final response = await _httpClient.get(
+        pullUri,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $authToken',
+        },
+      ).timeout(const Duration(seconds: 15));
+
+      if (response.statusCode == 401) {
+        return SyncEnginePullResult(
+          totalProcessed: 0,
+          lastAppliedVersion: sinceVersion,
+          hasMore: false,
+          globalError: 'UNAUTHORIZED: 401 Invalid Token',
+        );
+      }
+
+      if (response.statusCode != 200) {
+        return SyncEnginePullResult(
+          totalProcessed: 0,
+          lastAppliedVersion: sinceVersion,
+          hasMore: false,
+          globalError: 'HTTP Error ${response.statusCode}',
+        );
+      }
+
+      final responseMap = jsonDecode(response.body) as Map<String, dynamic>;
+      final changesRaw = responseMap['changes'] as List?;
+      final nextVersion = (responseMap['nextVersion'] as int?) ?? sinceVersion;
+      final hasMore = (responseMap['hasMore'] as bool?) ?? false;
+
+      if (changesRaw == null || changesRaw.isEmpty) {
+        if (nextVersion > sinceVersion) {
+          await _queueRepository.updateLastAppliedServerVersion(nextVersion);
+        }
+        return SyncEnginePullResult(
+          totalProcessed: 0,
+          lastAppliedVersion: nextVersion,
+          hasMore: hasMore,
+        );
+      }
+
+      final db = await _databaseService.database;
+
+      // Apply pulled changes & advance cursor atomically in a single SQLite transaction
+      await db.transaction((txn) async {
+        for (final change in changesRaw) {
+          if (change is! Map<String, dynamic>) continue;
+
+          final entityType = change['entityType'] as String?;
+          final entityId = change['entityId'] as String?;
+          final operation = change['operation'] as String?;
+          final originDeviceId = change['originDeviceId'] as String?;
+          final payload = change['payload'] is Map<String, dynamic>
+              ? change['payload'] as Map<String, dynamic>
+              : <String, dynamic>{};
+
+          if (entityType == null || entityId == null || operation == null) continue;
+
+          // Own-Device Echo Check: Skip reapplying changes pushed by THIS device
+          if (originDeviceId != null && deviceId != null && originDeviceId == deviceId) {
+            continue;
+          }
+
+          // Check if local pending mutation exists for this entity
+          final hasPending = await _queueRepository.hasPendingLocalMutation(entityType, entityId, txn: txn);
+          if (hasPending) {
+            // Preserving local unsynced pending edits for Phase 8.6 Conflict Resolution.
+            // Admin status updates are applied to loan status field cleanly.
+            if (entityType == 'loan' && payload.containsKey('status')) {
+              await txn.update(
+                'loans',
+                {'status': payload['status']},
+                where: 'id = ?',
+                whereArgs: [entityId],
+              );
+            }
+            continue;
+          }
+
+          if (entityType == 'loan') {
+            final statusStr = payload['status'] as String? ?? 'pending';
+            final priorityStr = payload['priority'] as String? ?? 'medium';
+
+            final loan = LoanModel(
+              id: entityId,
+              userId: payload['userId'] as String? ?? '',
+              userName: payload['userName'] as String? ?? 'User',
+              amount: (payload['amount'] as num?)?.toDouble() ?? 0.0,
+              tenureMonths: (payload['tenureMonths'] as int?) ?? 12,
+              purpose: payload['purpose'] as String? ?? '',
+              priority: LoanPriority.values.firstWhere(
+                (p) => p.name == priorityStr,
+                orElse: () => LoanPriority.medium,
+              ),
+              status: LoanStatus.values.firstWhere(
+                (s) => s.name == statusStr,
+                orElse: () => LoanStatus.pending,
+              ),
+              createdAt: payload['createdAt'] != null
+                  ? DateTime.parse(payload['createdAt'] as String)
+                  : DateTime.now(),
+            );
+
+            await _loanRepository.applyServerLoan(loan, operation, txn: txn);
+          } else if (entityType == 'loan_activity') {
+            if (operation == 'CREATE' || operation == 'UPDATE') {
+              await txn.insert(
+                'loan_activities',
+                {
+                  'id': entityId,
+                  'loanId': payload['loanId'] ?? 'UNKNOWN',
+                  'userId': payload['userId'] ?? '',
+                  'userName': payload['userName'] ?? 'User',
+                  'type': payload['type'] ?? 'system',
+                  'message': payload['message'] ?? '',
+                  'createdAt': payload['createdAt'] ?? DateTime.now().toIso8601String(),
+                },
+                conflictAlgorithm: ConflictAlgorithm.replace,
+              );
+            } else if (operation == 'DELETE') {
+              await txn.delete('loan_activities', where: 'id = ?', whereArgs: [entityId]);
+            }
+          } else if (entityType == 'notification') {
+            if (operation == 'CREATE' || operation == 'UPDATE') {
+              await txn.insert(
+                'notifications',
+                {
+                  'id': entityId,
+                  'userId': payload['userId'] ?? '',
+                  'title': payload['title'] ?? '',
+                  'message': payload['message'] ?? '',
+                  'type': payload['type'] ?? 'system',
+                  'loanId': payload['loanId'],
+                  'createdAt': payload['createdAt'] ?? DateTime.now().toIso8601String(),
+                  'isRead': (payload['isRead'] == true || payload['isRead'] == 1) ? 1 : 0,
+                },
+                conflictAlgorithm: ConflictAlgorithm.replace,
+              );
+            } else if (operation == 'DELETE') {
+              await txn.delete('notifications', where: 'id = ?', whereArgs: [entityId]);
+            }
+          }
+        }
+
+        // Update local cursor in the SAME transaction
+        await _queueRepository.updateLastAppliedServerVersion(nextVersion, txn: txn);
+      });
+
+      return SyncEnginePullResult(
+        totalProcessed: changesRaw.length,
+        lastAppliedVersion: nextVersion,
+        hasMore: hasMore,
+      );
+    } catch (e) {
+      return SyncEnginePullResult(
+        totalProcessed: 0,
+        lastAppliedVersion: sinceVersion,
+        hasMore: false,
         globalError: e.toString(),
       );
     }

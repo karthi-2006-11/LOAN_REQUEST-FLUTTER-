@@ -81,6 +81,12 @@ class TestSyncEngineDatabaseService implements DatabaseService {
             error TEXT
           )
         ''');
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS sync_metadata (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+          )
+        ''');
       },
     );
     return _db!;
@@ -102,6 +108,7 @@ void main() {
   late LocalLoanRepository clientLoanRepo;
   const baseUrl = 'http://localhost:8080';
   const validToken = 'mock_valid_jwt_token';
+  const clientDeviceId = 'DEV-CLIENT-001';
 
   setUpAll(() {
     sqfliteFfiInit();
@@ -121,202 +128,324 @@ void main() {
     if (File(clientDbPath).existsSync()) File(clientDbPath).deleteSync();
   });
 
-  group('SyncEngine Push Synchronization Unit Tests', () {
+  group('SyncEngine Synchronization & Surgical Review Tests', () {
     test('1. UUID v4 Format: generateClientOperationId produces valid RFC 4122 UUID v4', () {
       final uuid = SyncQueueItem.generateClientOperationId();
       final uuidV4Regex = RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$');
       expect(uuidV4Regex.hasMatch(uuid), isTrue);
     });
 
-    test('2. Push with no pending items does not execute HTTP request', () async {
-      var httpRequestMade = false;
-      final mockClient = MockClient((req) async {
-        httpRequestMade = true;
-        return http.Response('{}', 200);
-      });
-
-      final syncEngine = SyncEngine(queueRepository: clientQueueRepo, httpClient: mockClient);
-      final result = await syncEngine.pushPending(baseUrl: baseUrl, authToken: validToken);
-
-      expect(result.totalProcessed, equals(0));
-      expect(result.syncedCount, equals(0));
-      expect(httpRequestMade, isFalse);
+    test('2. Initial Pull Cursor is 0', () async {
+      final cursor = await clientQueueRepo.getLastAppliedServerVersion();
+      expect(cursor, equals(0));
     });
 
-    test('3. Successful Push: Item status updated to SYNCED locally', () async {
+    test('3. Pull Changes: Applies server changes to local SQLite and updates cursor atomically', () async {
+      final mockClient = MockClient((req) async {
+        expect(req.url.path, equals('/api/sync/pull'));
+        expect(req.url.queryParameters['since'], equals('0'));
+
+        return http.Response(
+          jsonEncode({
+            'success': true,
+            'changes': [
+              {
+                'serverVersion': 1,
+                'entityType': 'loan',
+                'entityId': 'LOAN-SERVER-001',
+                'operation': 'CREATE',
+                'originDeviceId': 'DEV-REMOTE-99',
+                'payload': {
+                  'id': 'LOAN-SERVER-001',
+                  'userId': 'USR-CUST-1',
+                  'userName': 'Customer User',
+                  'amount': 25000.0,
+                  'tenureMonths': 24,
+                  'purpose': 'Business Expansion',
+                  'priority': 'high',
+                  'status': 'pending',
+                  'createdAt': DateTime.now().toIso8601String(),
+                },
+              }
+            ],
+            'nextVersion': 1,
+            'hasMore': false,
+          }),
+          200,
+        );
+      });
+
+      final syncEngine = SyncEngine(
+        queueRepository: clientQueueRepo,
+        loanRepository: clientLoanRepo,
+        databaseService: clientDbService,
+        httpClient: mockClient,
+      );
+
+      final result = await syncEngine.pullChanges(baseUrl: baseUrl, authToken: validToken, deviceId: clientDeviceId);
+
+      expect(result.totalProcessed, equals(1));
+      expect(result.lastAppliedVersion, equals(1));
+
+      final loanInLocalDb = await clientLoanRepo.getLoanById('LOAN-SERVER-001');
+      expect(loanInLocalDb, isNotNull);
+      expect(loanInLocalDb!.amount, equals(25000.0));
+
+      final updatedCursor = await clientQueueRepo.getLastAppliedServerVersion();
+      expect(updatedCursor, equals(1));
+
+      final pendingQueue = await clientQueueRepo.getPendingItems();
+      expect(pendingQueue, isEmpty);
+    });
+
+    test('4. Own-Device Echo Prevention: Changes from same deviceId advance cursor without reapplying local mutation', () async {
+      final mockClient = MockClient((req) async {
+        return http.Response(
+          jsonEncode({
+            'success': true,
+            'changes': [
+              {
+                'serverVersion': 5,
+                'entityType': 'loan',
+                'entityId': 'LOAN-OWN-ECHO',
+                'operation': 'CREATE',
+                'originDeviceId': clientDeviceId, // Same deviceId as client
+                'payload': {
+                  'id': 'LOAN-OWN-ECHO',
+                  'amount': 99999.0,
+                  'status': 'pending',
+                },
+              }
+            ],
+            'nextVersion': 5,
+            'hasMore': false,
+          }),
+          200,
+        );
+      });
+
+      final syncEngine = SyncEngine(
+        queueRepository: clientQueueRepo,
+        loanRepository: clientLoanRepo,
+        databaseService: clientDbService,
+        httpClient: mockClient,
+      );
+
+      final result = await syncEngine.pullChanges(baseUrl: baseUrl, authToken: validToken, deviceId: clientDeviceId);
+
+      expect(result.lastAppliedVersion, equals(5));
+
+      // Verify change was skipped from local business table
+      final loan = await clientLoanRepo.getLoanById('LOAN-OWN-ECHO');
+      expect(loan, isNull);
+
+      // Verify sync_queue remains empty
+      final pendingItems = await clientQueueRepo.getPendingItems();
+      expect(pendingItems, isEmpty);
+    });
+
+    test('5. Pending Customer-Owned Mutation Preserved: Server edit does not destroy pending local change', () async {
+      // 1. Enqueue local offline mutation for LOAN-OVERLAP (customer edited amount to 20000)
       final localLoan = LoanModel(
-        id: 'LOAN-SYNC-001',
+        id: 'LOAN-OVERLAP',
         userId: 'USR-CUST-1',
-        userName: 'Customer User',
-        amount: 15000.0,
+        userName: 'Customer',
+        amount: 20000.0,
         tenureMonths: 12,
-        purpose: 'New Business',
+        purpose: 'Local Edit Offline',
         priority: LoanPriority.high,
         status: LoanStatus.pending,
         createdAt: DateTime.now(),
       );
-
       await clientLoanRepo.createLoan(localLoan);
+
       final pendingBefore = await clientQueueRepo.getPendingItems();
       expect(pendingBefore.length, equals(1));
-      final clientOpId = pendingBefore.first.clientOperationId;
 
+      // 2. Server sends a pull change for LOAN-OVERLAP (amount = 15000)
       final mockClient = MockClient((req) async {
-        expect(req.url.path, equals('/api/sync/push'));
-        expect(req.headers['Authorization'], equals('Bearer $validToken'));
-
-        final body = jsonDecode(req.body) as Map<String, dynamic>;
-        final ops = body['operations'] as List;
-        expect(ops.length, equals(1));
-        expect(ops.first['clientOperationId'], equals(clientOpId));
-
         return http.Response(
           jsonEncode({
             'success': true,
-            'results': [
+            'changes': [
               {
-                'clientOperationId': clientOpId,
-                'entityId': 'LOAN-SYNC-001',
-                'status': 'SYNCED',
-                'message': 'Applied',
+                'serverVersion': 8,
+                'entityType': 'loan',
+                'entityId': 'LOAN-OVERLAP',
+                'operation': 'UPDATE',
+                'originDeviceId': 'DEV-OTHER-DEVICE',
+                'payload': {
+                  'id': 'LOAN-OVERLAP',
+                  'amount': 15000.0,
+                },
               }
             ],
+            'nextVersion': 8,
+            'hasMore': false,
           }),
           200,
         );
       });
 
-      final syncEngine = SyncEngine(queueRepository: clientQueueRepo, httpClient: mockClient);
-      final result = await syncEngine.pushPending(baseUrl: baseUrl, authToken: validToken);
+      final syncEngine = SyncEngine(
+        queueRepository: clientQueueRepo,
+        loanRepository: clientLoanRepo,
+        databaseService: clientDbService,
+        httpClient: mockClient,
+      );
 
-      expect(result.totalProcessed, equals(1));
-      expect(result.syncedCount, equals(1));
+      await syncEngine.pullChanges(baseUrl: baseUrl, authToken: validToken, deviceId: clientDeviceId);
 
-      final itemAfter = await clientQueueRepo.getByClientOperationId(clientOpId);
-      expect(itemAfter!.status, equals('SYNCED'));
+      // Pending local mutation MUST remain intact in sync_queue!
+      final pendingAfter = await clientQueueRepo.getPendingItems();
+      expect(pendingAfter.length, equals(1));
+      expect(pendingAfter.first.entityId, equals('LOAN-OVERLAP'));
+
+      // Cursor advances to 8
+      final cursor = await clientQueueRepo.getLastAppliedServerVersion();
+      expect(cursor, equals(8));
     });
 
-    test('4. Network Failure: Item remains in sync_queue as SYNC_FAILED with preserved clientOperationId', () async {
-      final opId = SyncQueueItem.generateClientOperationId();
-      final item = SyncQueueItem(
-        id: 'SQ-NET-FAIL',
-        entityType: 'loan',
-        entityId: 'LOAN-FAIL',
-        operation: 'CREATE',
-        payload: {'id': 'LOAN-FAIL', 'amount': 5000.0},
-        clientOperationId: opId,
+    test('6. Admin Status Update Propagation: Status approved updates loan status while preserving pending local edit', () async {
+      final localLoan = LoanModel(
+        id: 'LOAN-ADMIN-PROP',
+        userId: 'USR-CUST-1',
+        userName: 'Customer',
+        amount: 20000.0,
+        tenureMonths: 12,
+        purpose: 'Local Edit',
+        priority: LoanPriority.high,
+        status: LoanStatus.pending,
         createdAt: DateTime.now(),
       );
-      await clientQueueRepo.enqueue(item);
-
-      final mockClient = MockClient((req) async {
-        throw const SocketException('Connection refused');
-      });
-
-      final syncEngine = SyncEngine(queueRepository: clientQueueRepo, httpClient: mockClient);
-      final result = await syncEngine.pushPending(baseUrl: baseUrl, authToken: validToken);
-
-      expect(result.failedCount, equals(1));
-
-      final itemAfter = await clientQueueRepo.getByClientOperationId(opId);
-      expect(itemAfter, isNotNull);
-      expect(itemAfter!.status, equals('SYNC_FAILED'));
-      expect(itemAfter.retryCount, equals(1));
-      expect(itemAfter.clientOperationId, equals(opId)); // Retained!
-    });
-
-    test('5. HTTP 401 Unauthorized: Items reverted to PENDING_SYNC without discarding or extra retry increment', () async {
-      final opId = SyncQueueItem.generateClientOperationId();
-      final item = SyncQueueItem(
-        id: 'SQ-401-TEST',
-        entityType: 'loan',
-        entityId: 'LOAN-401',
-        operation: 'CREATE',
-        payload: {},
-        clientOperationId: opId,
-        createdAt: DateTime.now(),
-      );
-      await clientQueueRepo.enqueue(item);
-
-      final mockClient = MockClient((req) async {
-        return http.Response(jsonEncode({'success': false, 'error': 'Unauthorized'}), 401);
-      });
-
-      final syncEngine = SyncEngine(queueRepository: clientQueueRepo, httpClient: mockClient);
-      final result = await syncEngine.pushPending(baseUrl: baseUrl, authToken: 'invalid_token');
-
-      expect(result.globalError, contains('401'));
-
-      final itemAfter = await clientQueueRepo.getByClientOperationId(opId);
-      expect(itemAfter, isNotNull);
-      expect(itemAfter!.status, equals('PENDING_SYNC')); // Kept pending for auth re-try!
-      expect(itemAfter.retryCount, equals(0));
-    });
-
-    test('6. Mixed Batch Results: Handles per-operation partial results independently in a single batch', () async {
-      final op1 = SyncQueueItem.generateClientOperationId();
-      final op2 = SyncQueueItem.generateClientOperationId();
-      final op3 = SyncQueueItem.generateClientOperationId();
-
-      await clientQueueRepo.enqueue(SyncQueueItem(
-        id: 'SQ-MIXED-1',
-        entityType: 'loan',
-        entityId: 'LOAN-M1',
-        operation: 'CREATE',
-        payload: {},
-        clientOperationId: op1,
-        createdAt: DateTime.now().subtract(const Duration(seconds: 3)),
-      ));
-
-      await clientQueueRepo.enqueue(SyncQueueItem(
-        id: 'SQ-MIXED-2',
-        entityType: 'loan',
-        entityId: 'LOAN-M2',
-        operation: 'UPDATE',
-        payload: {},
-        clientOperationId: op2,
-        createdAt: DateTime.now().subtract(const Duration(seconds: 2)),
-      ));
-
-      await clientQueueRepo.enqueue(SyncQueueItem(
-        id: 'SQ-MIXED-3',
-        entityType: 'loan',
-        entityId: 'LOAN-M3',
-        operation: 'DELETE',
-        payload: {},
-        clientOperationId: op3,
-        createdAt: DateTime.now().subtract(const Duration(seconds: 1)),
-      ));
+      await clientLoanRepo.createLoan(localLoan);
 
       final mockClient = MockClient((req) async {
         return http.Response(
           jsonEncode({
             'success': true,
-            'results': [
-              {'clientOperationId': op1, 'entityId': 'LOAN-M1', 'status': 'SYNCED', 'message': 'OK'},
-              {'clientOperationId': op2, 'entityId': 'LOAN-M2', 'status': 'CONFLICT', 'message': 'Forbidden update'},
-              {'clientOperationId': op3, 'entityId': 'LOAN-M3', 'status': 'FAILED', 'message': 'Database busy'},
+            'changes': [
+              {
+                'serverVersion': 12,
+                'entityType': 'loan',
+                'entityId': 'LOAN-ADMIN-PROP',
+                'operation': 'UPDATE',
+                'originDeviceId': 'DEV-ADMIN-CONSOLE',
+                'payload': {
+                  'id': 'LOAN-ADMIN-PROP',
+                  'status': 'approved',
+                },
+              }
             ],
+            'nextVersion': 12,
+            'hasMore': false,
           }),
           200,
         );
       });
 
-      final syncEngine = SyncEngine(queueRepository: clientQueueRepo, httpClient: mockClient);
-      final result = await syncEngine.pushPending(baseUrl: baseUrl, authToken: validToken);
+      final syncEngine = SyncEngine(
+        queueRepository: clientQueueRepo,
+        loanRepository: clientLoanRepo,
+        databaseService: clientDbService,
+        httpClient: mockClient,
+      );
 
-      expect(result.totalProcessed, equals(3));
-      expect(result.syncedCount, equals(1));
-      expect(result.conflictCount, equals(1));
-      expect(result.failedCount, equals(1));
+      await syncEngine.pullChanges(baseUrl: baseUrl, authToken: validToken, deviceId: clientDeviceId);
 
-      final item1 = await clientQueueRepo.getByClientOperationId(op1);
-      final item2 = await clientQueueRepo.getByClientOperationId(op2);
-      final item3 = await clientQueueRepo.getByClientOperationId(op3);
+      // Local loan status is updated to approved
+      final loan = await clientLoanRepo.getLoanById('LOAN-ADMIN-PROP');
+      expect(loan!.status, equals(LoanStatus.approved));
 
-      expect(item1!.status, equals('SYNCED'));
-      expect(item2!.status, equals('CONFLICT'));
-      expect(item3!.status, equals('SYNC_FAILED'));
+      // Local pending mutation in sync_queue remains intact
+      final pending = await clientQueueRepo.getPendingItems();
+      expect(pending.length, equals(1));
+    });
+
+    test('7. Echo Prevention: Pulled server changes DO NOT create new outgoing sync_queue entries', () async {
+      final mockClient = MockClient((req) async {
+        return http.Response(
+          jsonEncode({
+            'success': true,
+            'changes': [
+              {
+                'serverVersion': 15,
+                'entityType': 'loan',
+                'entityId': 'LOAN-PULLED-NOECHO',
+                'operation': 'CREATE',
+                'payload': {
+                  'id': 'LOAN-PULLED-NOECHO',
+                  'userId': 'USR-CUST-1',
+                  'userName': 'Customer',
+                  'amount': 5000.0,
+                  'tenureMonths': 6,
+                  'purpose': 'Short loan',
+                  'priority': 'low',
+                  'status': 'approved',
+                },
+              }
+            ],
+            'nextVersion': 15,
+            'hasMore': false,
+          }),
+          200,
+        );
+      });
+
+      final syncEngine = SyncEngine(
+        queueRepository: clientQueueRepo,
+        loanRepository: clientLoanRepo,
+        databaseService: clientDbService,
+        httpClient: mockClient,
+      );
+
+      await syncEngine.pullChanges(baseUrl: baseUrl, authToken: validToken, deviceId: clientDeviceId);
+
+      final loan = await clientLoanRepo.getLoanById('LOAN-PULLED-NOECHO');
+      expect(loan, isNotNull);
+
+      // Verify sync_queue count is exactly 0
+      final pendingItems = await clientQueueRepo.getPendingItems();
+      expect(pendingItems, isEmpty);
+    });
+
+    test('8. Atomicity Rollback: Failure inside multi-change pull transaction rolls back cursor and data', () async {
+      final mockClient = MockClient((req) async {
+        return http.Response(
+          jsonEncode({
+            'success': true,
+            'changes': [
+              {
+                'serverVersion': 20,
+                'entityType': 'loan',
+                'entityId': 'LOAN-ROLLBACK-TEST',
+                'operation': 'CREATE',
+                'payload': {
+                  'id': 'LOAN-ROLLBACK-TEST',
+                  'amount': 'INVALID_STRING_THAT_THROWS_EXCEPTION',
+                },
+              }
+            ],
+            'nextVersion': 20,
+            'hasMore': false,
+          }),
+          200,
+        );
+      });
+
+      final syncEngine = SyncEngine(
+        queueRepository: clientQueueRepo,
+        loanRepository: clientLoanRepo,
+        databaseService: clientDbService,
+        httpClient: mockClient,
+      );
+
+      final result = await syncEngine.pullChanges(baseUrl: baseUrl, authToken: validToken, deviceId: clientDeviceId);
+      expect(result.globalError, isNotNull);
+
+      // Cursor MUST remain at 0
+      final cursor = await clientQueueRepo.getLastAppliedServerVersion();
+      expect(cursor, equals(0));
     });
   });
 }

@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 import '../config/env_config.dart';
@@ -42,16 +41,9 @@ Router buildApiRouter({
     return handler(request);
   });
 
-  // 4. Authenticated Push Sync
+  // 4. Authenticated Push & Pull Sync
   router.post('/sync/push', authenticatedPipeline.addHandler((request) => syncController.handlePush(request)));
-
-  // 5. Unauthenticated Pull Sync placeholder (501 Not Implemented)
-  router.get('/sync/pull', (Request request) async {
-    return Response(501, body: jsonEncode({
-      'success': false,
-      'error': {'code': 'NOT_IMPLEMENTED', 'message': 'Pull sync is scheduled for Phase 8.5'}
-    }), headers: {'content-type': 'application/json'});
-  });
+  router.get('/sync/pull', authenticatedPipeline.addHandler((request) => syncController.handlePull(request)));
 
   return router;
 }

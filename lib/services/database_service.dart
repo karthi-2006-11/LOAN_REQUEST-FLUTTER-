@@ -68,6 +68,13 @@ class DatabaseService {
       )
     ''');
 
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS sync_metadata (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      )
+    ''');
+
     await db.execute('CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON sync_queue(status);');
     await db.execute('CREATE INDEX IF NOT EXISTS idx_sync_queue_createdAt ON sync_queue(createdAt);');
   }
