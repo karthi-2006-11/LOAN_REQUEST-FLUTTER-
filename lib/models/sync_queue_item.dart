@@ -14,6 +14,7 @@ class SyncQueueItem {
   final DateTime? lastAttemptAt;
   final String status; // 'PENDING_SYNC', 'SYNCING', 'SYNCED', 'SYNC_FAILED', 'CONFLICT'
   final String? error;
+  final int? baseVersion; // Entity base version observed at time of local edit
 
   SyncQueueItem({
     required this.id,
@@ -27,6 +28,7 @@ class SyncQueueItem {
     this.lastAttemptAt,
     this.status = 'PENDING_SYNC',
     this.error,
+    this.baseVersion,
   });
 
   SyncQueueItem copyWith({
@@ -34,6 +36,7 @@ class SyncQueueItem {
     DateTime? lastAttemptAt,
     String? status,
     String? error,
+    int? baseVersion,
   }) {
     return SyncQueueItem(
       id: id,
@@ -47,6 +50,7 @@ class SyncQueueItem {
       lastAttemptAt: lastAttemptAt ?? this.lastAttemptAt,
       status: status ?? this.status,
       error: error ?? this.error,
+      baseVersion: baseVersion ?? this.baseVersion,
     );
   }
 
@@ -63,6 +67,7 @@ class SyncQueueItem {
       'lastAttemptAt': lastAttemptAt?.toIso8601String(),
       'status': status,
       'error': error,
+      if (baseVersion != null) 'baseVersion': baseVersion,
     };
   }
 
@@ -81,6 +86,7 @@ class SyncQueueItem {
           : null,
       status: map['status'] as String? ?? 'PENDING_SYNC',
       error: map['error'] as String?,
+      baseVersion: map['baseVersion'] as int?,
     );
   }
 

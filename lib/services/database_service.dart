@@ -9,7 +9,7 @@ class DatabaseService {
   DatabaseService._internal();
 
   static const String _dbName = 'blackvault.db';
-  static const int _dbVersion = 2;
+  static const int _dbVersion = 3;
 
   Database? _database;
 
@@ -49,6 +49,12 @@ class DatabaseService {
     if (oldVersion < 2) {
       await _createSyncQueueTables(db);
     }
+    if (oldVersion < 3) {
+      await _createSyncConflictsTable(db);
+      try {
+        await db.execute('ALTER TABLE sync_queue ADD COLUMN baseVersion INTEGER;');
+      } catch (_) {}
+    }
   }
 
   static Future<void> _createSyncQueueTables(Database db) async {
@@ -64,7 +70,8 @@ class DatabaseService {
         retryCount INTEGER NOT NULL DEFAULT 0,
         lastAttemptAt TEXT,
         status TEXT NOT NULL DEFAULT 'PENDING_SYNC',
-        error TEXT
+        error TEXT,
+        baseVersion INTEGER
       )
     ''');
 
@@ -77,6 +84,26 @@ class DatabaseService {
 
     await db.execute('CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON sync_queue(status);');
     await db.execute('CREATE INDEX IF NOT EXISTS idx_sync_queue_createdAt ON sync_queue(createdAt);');
+  }
+
+  static Future<void> _createSyncConflictsTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS sync_conflicts (
+        id TEXT PRIMARY KEY,
+        clientOperationId TEXT NOT NULL UNIQUE,
+        entityType TEXT NOT NULL,
+        entityId TEXT NOT NULL,
+        conflictType TEXT NOT NULL,
+        localValue TEXT NOT NULL,
+        serverValue TEXT NOT NULL,
+        serverVersion INTEGER NOT NULL DEFAULT 0,
+        createdAt TEXT NOT NULL,
+        resolvedAt TEXT,
+        resolution TEXT
+      )
+    ''');
+
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_sync_conflicts_entity ON sync_conflicts(entityType, entityId);');
   }
 
   Future<void> _onCreate(Database db, int version) async {
@@ -135,10 +162,13 @@ class DatabaseService {
       )
     ''');
 
-    // 5. sync_queue table
+    // 5. sync_queue and sync_metadata tables
     await _createSyncQueueTables(db);
 
-    // 6. Indexes for query optimization
+    // 6. sync_conflicts table
+    await _createSyncConflictsTable(db);
+
+    // 7. Indexes for query optimization
     await db.execute('CREATE INDEX IF NOT EXISTS idx_loans_userId ON loans(userId);');
     await db.execute('CREATE INDEX IF NOT EXISTS idx_loans_status ON loans(status);');
     await db.execute('CREATE INDEX IF NOT EXISTS idx_loan_activities_loanId ON loan_activities(loanId);');

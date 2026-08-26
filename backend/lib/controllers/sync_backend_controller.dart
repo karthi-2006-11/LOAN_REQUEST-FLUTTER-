@@ -49,6 +49,7 @@ class SyncBackendController {
             : <String, dynamic>{};
 
         final originDeviceId = op['deviceId'] as String? ?? payload['deviceId'] as String?;
+        final opBaseVersion = op['baseVersion'] as int? ?? payload['baseVersion'] as int?;
 
         if (clientOpId == null || clientOpId.isEmpty || entityType == null || operation == null || entityId == null) {
           results.add({
@@ -75,6 +76,7 @@ class SyncBackendController {
         // 2. Process Operation Transactionally
         String status = 'SYNCED';
         String message = 'Operation applied successfully';
+        Map<String, dynamic>? serverState;
 
         try {
           await db.transaction((txn) async {
@@ -123,6 +125,7 @@ class SyncBackendController {
                 }
 
                 final existingLoan = LoanServerModel.fromSqlMap(existingList.first);
+                serverState = existingLoan.toJson();
 
                 if (authUser.role != 'ADMIN') {
                   if (existingLoan.userId != authUser.userId) {
@@ -140,6 +143,12 @@ class SyncBackendController {
                   if (existingLoan.status != 'pending') {
                     status = 'CONFLICT';
                     message = 'Conflict: Cannot edit loan after admin decision';
+                    return;
+                  }
+
+                  if (opBaseVersion != null && opBaseVersion < existingLoan.version) {
+                    status = 'CONFLICT';
+                    message = 'Stale mutation: baseVersion ($opBaseVersion) is behind server version (${existingLoan.version})';
                     return;
                   }
                 }
@@ -207,7 +216,11 @@ class SyncBackendController {
               entityId: entityId,
               operationType: '$entityType-$operation',
               responseCode: 200,
-              responsePayload: jsonEncode({'status': status, 'message': message}),
+              responsePayload: jsonEncode({
+                'status': status,
+                'message': message,
+                if (serverState != null) 'serverState': serverState,
+              }),
               createdAt: DateTime.now(),
             ).toSqlMap());
 
@@ -234,6 +247,7 @@ class SyncBackendController {
           'entityId': entityId,
           'status': status,
           'message': message,
+          if (serverState != null) 'serverState': serverState,
         });
       }
 

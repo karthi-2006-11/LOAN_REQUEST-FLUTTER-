@@ -85,7 +85,8 @@ class TestSyncQueueDatabaseService implements DatabaseService {
             retryCount INTEGER NOT NULL DEFAULT 0,
             lastAttemptAt TEXT,
             status TEXT NOT NULL DEFAULT 'PENDING_SYNC',
-            error TEXT
+            error TEXT,
+            baseVersion INTEGER
           )
         ''');
         await db.execute('CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON sync_queue(status);');

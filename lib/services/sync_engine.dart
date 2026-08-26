@@ -6,6 +6,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import '../models/loan_model.dart';
 import '../models/loan_priority.dart';
 import '../models/loan_status.dart';
+import '../models/sync_conflict_record.dart';
 import '../repositories/loan_repository.dart';
 import '../repositories/sync_queue_repository.dart';
 import 'database_service.dart';
@@ -97,6 +98,7 @@ class SyncEngine {
         'operation': item.operation,
         'payload': item.payload,
         'deviceId': deviceId,
+        'baseVersion': item.baseVersion ?? item.payload['baseVersion'],
         'createdAt': item.createdAt.toIso8601String(),
       }).toList(),
     };
@@ -215,7 +217,30 @@ class SyncEngine {
           await _queueRepository.updateStatus(item.id, 'SYNCED');
           synced++;
         } else if (status == 'CONFLICT' || status == 'FORBIDDEN') {
-          await _queueRepository.updateStatus(item.id, 'CONFLICT', error: message ?? 'Conflict');
+          final serverState = res['serverState'] is Map<String, dynamic>
+              ? res['serverState'] as Map<String, dynamic>
+              : <String, dynamic>{};
+
+          final db = await _databaseService.database;
+          await db.transaction((txn) async {
+            await _queueRepository.updateStatus(item.id, 'CONFLICT', error: message ?? 'Conflict', txn: txn);
+
+            final conflictRecord = SyncConflictRecord(
+              id: 'CONF-${DateTime.now().microsecondsSinceEpoch}',
+              clientOperationId: item.clientOperationId,
+              entityType: item.entityType,
+              entityId: item.entityId,
+              conflictType: status == 'FORBIDDEN' ? 'ADMIN_OVERRIDE' : 'STALE_PUSH',
+              localValue: item.payload,
+              serverValue: serverState,
+              serverVersion: (serverState['version'] as int?) ?? 0,
+              createdAt: DateTime.now(),
+              resolvedAt: null,
+              resolution: null,
+            );
+
+            await _queueRepository.saveConflictRecord(conflictRecord, txn: txn);
+          });
           conflicts++;
         } else {
           await _queueRepository.incrementRetry(item.id, error: message ?? 'Operation failed');

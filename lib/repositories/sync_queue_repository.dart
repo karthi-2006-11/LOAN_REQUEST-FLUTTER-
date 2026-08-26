@@ -1,4 +1,5 @@
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import '../models/sync_conflict_record.dart';
 import '../models/sync_queue_item.dart';
 import '../services/database_service.dart';
 
@@ -12,6 +13,8 @@ abstract class SyncQueueRepository {
   Future<int> getLastAppliedServerVersion();
   Future<void> updateLastAppliedServerVersion(int version, {DatabaseExecutor? txn});
   Future<bool> hasPendingLocalMutation(String entityType, String entityId, {DatabaseExecutor? txn});
+  Future<void> saveConflictRecord(SyncConflictRecord conflict, {DatabaseExecutor? txn});
+  Future<SyncConflictRecord?> getConflictRecordByClientOperationId(String clientOperationId);
 }
 
 class LocalSyncQueueRepository implements SyncQueueRepository {
@@ -144,5 +147,28 @@ class LocalSyncQueueRepository implements SyncQueueRepository {
       limit: 1,
     );
     return maps.isNotEmpty;
+  }
+
+  @override
+  Future<void> saveConflictRecord(SyncConflictRecord conflict, {DatabaseExecutor? txn}) async {
+    final executor = txn ?? await _databaseService.database;
+    await executor.insert(
+      'sync_conflicts',
+      conflict.toSqlMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  @override
+  Future<SyncConflictRecord?> getConflictRecordByClientOperationId(String clientOperationId) async {
+    final db = await _databaseService.database;
+    final maps = await db.query(
+      'sync_conflicts',
+      where: 'clientOperationId = ?',
+      whereArgs: [clientOperationId],
+      limit: 1,
+    );
+    if (maps.isEmpty) return null;
+    return SyncConflictRecord.fromSqlMap(maps.first);
   }
 }
