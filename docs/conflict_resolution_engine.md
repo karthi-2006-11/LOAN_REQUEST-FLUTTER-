@@ -285,7 +285,13 @@ ConflictResolutionResult resolveConflict({
   - Implemented pure, deterministic decision service `ConflictClassifier` ([`lib/services/conflict_classifier.dart`](file:///d:/LOAN_REQUEST_AG/lib/services/conflict_classifier.dart)) adhering to strict, non-overlapping reachability precedence.
   - Resolved category reachability shadowing issues between `CUSTOMER_FIELD_CONFLICT`, `SPLIT_OWNERSHIP_MERGE`, `ADMIN_STATUS_OVERRIDE`, and `STALE_PUSH`.
   - Implemented 18 unit tests verifying zero side-effects, full reachability of all 9 categories, and ambiguous edge cases ([`test/conflict_classifier_test.dart`](file:///d:/LOAN_REQUEST_AG/test/conflict_classifier_test.dart)).
-- **Phase 8.6.3.3 — Field-Level Merge Engine Core**: Implement pure `ConflictResolver` class in `lib/services/conflict_resolver.dart`.
+- **Phase 8.6.3.3 — Field-Level Merge Engine Core (Completed & Surgically Reviewed)**:
+  - Implemented input/output models `ConflictResolutionInput` & `ConflictResolutionResult` ([`lib/models/conflict_resolution_models.dart`](file:///d:/LOAN_REQUEST_AG/lib/models/conflict_resolution_models.dart)).
+  - Implemented pure, side-effect-free decision service `ConflictResolver` ([`lib/services/conflict_resolver.dart`](file:///d:/LOAN_REQUEST_AG/lib/services/conflict_resolver.dart)) mapping 9 conflict categories to deterministic `ResolutionOutcome` strategies (`noAction`, `customerWins`, `serverWins`, `fieldMerge`, `unresolved`, `rejected`).
+  - Enforced strict security & safety boundaries: `invalidMutation` (unauthorized `status` edits or explicit identity tampering for `id`, `userId`, `createdAt`) returns `ResolutionOutcome.rejected` rather than silent conversion.
+  - Handled `UPDATE_DELETE_CONFLICT` safely as `unresolved` (requires manual review) since customer loan deletion is not supported in the current data model.
+  - Implemented conflict-loop prevention (`retryCount >= 3` triggers `unresolved` with `requiresManualReview: true`).
+  - Implemented 18 comprehensive surgical unit tests verifying zero database/network side-effects and exact resolution logic ([`test/conflict_resolver_test.dart`](file:///d:/LOAN_REQUEST_AG/test/conflict_resolver_test.dart)).
 - **Phase 8.6.3.4 — Resolution Persistence & Queue Reconciliation**: Transactional updates to `sync_conflicts`, `sync_queue`, and local SQLite tables.
 - **Phase 8.6.3.5 — Re-Sync & Idempotency Management**: Generate fresh `clientOperationId` and updated `baseVersion` for re-queued items.
 - **Phase 8.6.3.6 — Comprehensive Testing & Hardening**: Implement the 13-scenario unit and integration test suite.
