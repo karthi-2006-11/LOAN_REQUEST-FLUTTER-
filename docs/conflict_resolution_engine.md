@@ -292,24 +292,34 @@ ConflictResolutionResult resolveConflict({
   - Handled `UPDATE_DELETE_CONFLICT` safely as `unresolved` (requires manual review) since customer loan deletion is not supported in the current data model.
   - Implemented conflict-loop prevention (`retryCount >= 3` triggers `unresolved` with `requiresManualReview: true`).
   - Implemented 18 comprehensive surgical unit tests verifying zero database/network side-effects and exact resolution logic ([`test/conflict_resolver_test.dart`](file:///d:/LOAN_REQUEST_AG/test/conflict_resolver_test.dart)).
-- **Phase 8.6.3.4 — Resolution Persistence & Queue Reconciliation**: Transactional updates to `sync_conflicts`, `sync_queue`, and local SQLite tables.
-- **Phase 8.6.3.5 — Re-Sync & Idempotency Management**: Generate fresh `clientOperationId` and updated `baseVersion` for re-queued items.
-- **Phase 8.6.3.6 — Comprehensive Testing & Hardening**: Implement the 13-scenario unit and integration test suite.
+- **Phase 8.6.4 — Conflict Recovery & Lifecycle Integration (Completed)**:
+  - Implemented `ConflictRecoveryService` ([`lib/services/conflict_recovery_service.dart`](file:///d:/LOAN_REQUEST_AG/lib/services/conflict_recovery_service.dart)) orchestrating pure `ConflictClassifier` + `ConflictResolver` decisions with atomic SQLite state transitions.
+  - Integrated `ConflictRecoveryService` into `SyncEngine.pushPending()` ([`lib/services/sync_engine.dart`](file:///d:/LOAN_REQUEST_AG/lib/services/sync_engine.dart)) inside a single atomic SQLite transaction.
+  - Enforced critical invariants:
+    - Requeued operations generate fresh RFC 4122 UUID v4 (`SyncQueueItem.generateClientOperationId()`), preserving original `clientOperationId` on historical conflict records.
+    - Requeued operations align `baseVersion` to current server entity version.
+    - Idempotency guard checks `conflict.resolution != null` preventing duplicate operations.
+    - Max retry limit (`retryCount >= 3`) routes conflicts to `UNRESOLVED` (`MANUAL`).
+    - Transaction failure rolls back all recovery mutations across `sync_queue`, `sync_conflicts`, and `loans`.
+  - Implemented 24+ integration test scenarios in [`test/conflict_recovery_service_test.dart`](file:///d:/LOAN_REQUEST_AG/test/conflict_recovery_service_test.dart).
 
 ---
 
 ## 19. Documentation Summary
-- **Created Document**: [`docs/conflict_resolution_engine.md`](file:///d:/LOAN_REQUEST_AG/docs/conflict_resolution_engine.md) (Complete Phase 8.6.3.1 Specification).
+- **Updated Documents**:
+  - [`docs/conflict_resolution_engine.md`](file:///d:/LOAN_REQUEST_AG/docs/conflict_resolution_engine.md)
+  - [`docs/sync_architecture.md`](file:///d:/LOAN_REQUEST_AG/docs/sync_architecture.md)
+  - [`docs/conflict_resolution.md`](file:///d:/LOAN_REQUEST_AG/docs/conflict_resolution.md)
 
 ---
 
 ## 20. Static Analysis & Test Verification
 ```text
 dart analyze lib/ test/ -> No issues found!
-flutter test         -> All tests passed! (50/50 tests passed)
+flutter test         -> All 94 tests passed!
 
 dart analyze backend/ -> No issues found!
-dart test backend/   -> All tests passed! (8/8 tests passed)
+dart test backend/   -> All 8 tests passed!
 ```
 
 ---

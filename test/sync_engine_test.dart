@@ -502,7 +502,7 @@ void main() {
 
       final queueItem = await clientQueueRepo.getByClientOperationId(opId);
       expect(queueItem, isNotNull);
-      expect(queueItem!.status, equals('CONFLICT'));
+      expect(queueItem!.status, equals('REJECTED'));
 
       final conflictRecord = await clientQueueRepo.getConflictRecordByClientOperationId(opId);
       expect(conflictRecord, isNotNull);
@@ -512,8 +512,8 @@ void main() {
       expect(conflictRecord.serverValue['amount'], equals(15000.0));
       expect(conflictRecord.serverValue['status'], equals('approved'));
       expect(conflictRecord.serverVersion, equals(2));
-      expect(conflictRecord.resolvedAt, isNull);
-      expect(conflictRecord.resolution, isNull);
+      expect(conflictRecord.resolvedAt, isNotNull);
+      expect(conflictRecord.resolution, equals('SERVER_WINS'));
     });
 
     test('10. Atomicity Test: Failed conflict storage rolls back transaction', () async {

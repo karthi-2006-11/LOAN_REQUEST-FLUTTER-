@@ -9,6 +9,7 @@ import '../models/loan_status.dart';
 import '../models/sync_conflict_record.dart';
 import '../repositories/loan_repository.dart';
 import '../repositories/sync_queue_repository.dart';
+import 'conflict_recovery_service.dart';
 import 'database_service.dart';
 
 class SyncEngineResult {
@@ -47,16 +48,19 @@ class SyncEngine {
   final LocalLoanRepository _loanRepository;
   final DatabaseService _databaseService;
   final http.Client _httpClient;
+  final ConflictRecoveryService _recoveryService;
 
   SyncEngine({
     SyncQueueRepository? queueRepository,
     LocalLoanRepository? loanRepository,
     DatabaseService? databaseService,
     http.Client? httpClient,
+    ConflictRecoveryService? recoveryService,
   })  : _queueRepository = queueRepository ?? LocalSyncQueueRepository(),
         _loanRepository = loanRepository ?? LocalLoanRepository(),
         _databaseService = databaseService ?? DatabaseService.instance,
-        _httpClient = httpClient ?? http.Client();
+        _httpClient = httpClient ?? http.Client(),
+        _recoveryService = recoveryService ?? ConflictRecoveryService();
 
   /// Push local PENDING_SYNC operations to the central backend.
   Future<SyncEngineResult> pushPending({
@@ -240,6 +244,7 @@ class SyncEngine {
             );
 
             await _queueRepository.saveConflictRecord(conflictRecord, txn: txn);
+            await _recoveryService.recoverConflict(conflictRecord, externalTxn: txn);
           });
           conflicts++;
         } else {

@@ -6,7 +6,7 @@ import '../services/database_service.dart';
 abstract class SyncQueueRepository {
   Future<SyncQueueItem> enqueue(SyncQueueItem item, {Transaction? txn});
   Future<List<SyncQueueItem>> getPendingItems({int limit = 50});
-  Future<SyncQueueItem?> getByClientOperationId(String clientOperationId);
+  Future<SyncQueueItem?> getByClientOperationId(String clientOperationId, {DatabaseExecutor? txn});
   Future<bool> updateStatus(String id, String status, {String? error, Transaction? txn});
   Future<bool> incrementRetry(String id, {String? error, Transaction? txn});
   Future<bool> deleteQueueItem(String id, {Transaction? txn});
@@ -14,7 +14,7 @@ abstract class SyncQueueRepository {
   Future<void> updateLastAppliedServerVersion(int version, {DatabaseExecutor? txn});
   Future<bool> hasPendingLocalMutation(String entityType, String entityId, {DatabaseExecutor? txn});
   Future<void> saveConflictRecord(SyncConflictRecord conflict, {DatabaseExecutor? txn});
-  Future<SyncConflictRecord?> getConflictRecordByClientOperationId(String clientOperationId);
+  Future<SyncConflictRecord?> getConflictRecordByClientOperationId(String clientOperationId, {DatabaseExecutor? txn});
 }
 
 class LocalSyncQueueRepository implements SyncQueueRepository {
@@ -47,9 +47,9 @@ class LocalSyncQueueRepository implements SyncQueueRepository {
   }
 
   @override
-  Future<SyncQueueItem?> getByClientOperationId(String clientOperationId) async {
-    final db = await _databaseService.database;
-    final List<Map<String, dynamic>> maps = await db.query(
+  Future<SyncQueueItem?> getByClientOperationId(String clientOperationId, {DatabaseExecutor? txn}) async {
+    final executor = txn ?? await _databaseService.database;
+    final List<Map<String, dynamic>> maps = await executor.query(
       'sync_queue',
       where: 'clientOperationId = ?',
       whereArgs: [clientOperationId],
@@ -160,9 +160,9 @@ class LocalSyncQueueRepository implements SyncQueueRepository {
   }
 
   @override
-  Future<SyncConflictRecord?> getConflictRecordByClientOperationId(String clientOperationId) async {
-    final db = await _databaseService.database;
-    final maps = await db.query(
+  Future<SyncConflictRecord?> getConflictRecordByClientOperationId(String clientOperationId, {DatabaseExecutor? txn}) async {
+    final executor = txn ?? await _databaseService.database;
+    final maps = await executor.query(
       'sync_conflicts',
       where: 'clientOperationId = ?',
       whereArgs: [clientOperationId],
