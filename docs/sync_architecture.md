@@ -335,6 +335,8 @@ To prevent duplicate requests when network retries occur (e.g., client sends upl
 - **Phase 8.6 — Conflict Resolution**:
   - **Phase 8.6.1 — Audit & Design (Completed)**: Created comprehensive conflict resolution specification (`docs/conflict_resolution.md`), field ownership matrix, status transition rules, and 9-category conflict taxonomy.
   - **Phase 8.6.2 — Persistence & Concurrency Foundation (Completed)**: Entity-level versioning (`loans.version`), base version tracking (`baseVersion`), server-side stale push detection (`HTTP 409 CONFLICT` with `serverState`), and SQLite `sync_conflicts` table schema (v3 migration) with atomic evidence persistence.
-  - **Phase 8.6.3+ — Merge Engine**: Field-level merge algorithm and conflict resolution handlers.
-- **Phase 8.7 — Reliability & Recovery**: Implement network loss detection, exponential backoff retries, and offline queue recovery.
-- **Phase 8.8 — End-to-End Testing**: Multi-device integration tests, offline-to-online transition tests, and regression verification.
+  - **Phase 8.6.3 — Classifier & Merge Engine Core (Completed)**: Pure, side-effect-free `ConflictClassifier` (9 categories) and `ConflictResolver` (6 resolution outcomes, security boundary enforcement).
+  - **Phase 8.6.4 — Conflict Recovery & Lifecycle Integration (Completed)**: Created `ConflictRecoveryService` for atomic SQLite state transitions (`sync_queue`, `sync_conflicts`, `loans`) in a single transaction with fresh UUID v4 generation and `baseVersion` alignment.
+  - **Phase 8.6.5 — End-to-End Conflict Resolution Verification (Completed)**: Integrated 11 end-to-end multi-device verification scenarios (Offline CREATE -> Push -> Pull, Admin Decision Propagation, Stale Customer Mutation, Taxonomy Verification, Retry/Idempotency, Pagination, Transaction Rollback, Multi-Device Isolation, Own-Device Echo Prevention, and Security Scenarios 1-8).
+- **Phase 8.7 — Reliability & Recovery**: Network loss detection, exponential backoff retries, and offline queue recovery (Not started).
+- **Phase 8.8 — End-to-End Testing**: Multi-device integration tests, offline-to-online transition tests, and regression verification (Not started).

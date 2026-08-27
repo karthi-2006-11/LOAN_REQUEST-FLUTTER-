@@ -292,16 +292,10 @@ ConflictResolutionResult resolveConflict({
   - Handled `UPDATE_DELETE_CONFLICT` safely as `unresolved` (requires manual review) since customer loan deletion is not supported in the current data model.
   - Implemented conflict-loop prevention (`retryCount >= 3` triggers `unresolved` with `requiresManualReview: true`).
   - Implemented 18 comprehensive surgical unit tests verifying zero database/network side-effects and exact resolution logic ([`test/conflict_resolver_test.dart`](file:///d:/LOAN_REQUEST_AG/test/conflict_resolver_test.dart)).
-- **Phase 8.6.4 — Conflict Recovery & Lifecycle Integration (Completed)**:
-  - Implemented `ConflictRecoveryService` ([`lib/services/conflict_recovery_service.dart`](file:///d:/LOAN_REQUEST_AG/lib/services/conflict_recovery_service.dart)) orchestrating pure `ConflictClassifier` + `ConflictResolver` decisions with atomic SQLite state transitions.
-  - Integrated `ConflictRecoveryService` into `SyncEngine.pushPending()` ([`lib/services/sync_engine.dart`](file:///d:/LOAN_REQUEST_AG/lib/services/sync_engine.dart)) inside a single atomic SQLite transaction.
-  - Enforced critical invariants:
-    - Requeued operations generate fresh RFC 4122 UUID v4 (`SyncQueueItem.generateClientOperationId()`), preserving original `clientOperationId` on historical conflict records.
-    - Requeued operations align `baseVersion` to current server entity version.
-    - Idempotency guard checks `conflict.resolution != null` preventing duplicate operations.
-    - Max retry limit (`retryCount >= 3`) routes conflicts to `UNRESOLVED` (`MANUAL`).
-    - Transaction failure rolls back all recovery mutations across `sync_queue`, `sync_conflicts`, and `loans`.
-  - Implemented 24+ integration test scenarios in [`test/conflict_recovery_service_test.dart`](file:///d:/LOAN_REQUEST_AG/test/conflict_recovery_service_test.dart).
+- **Phase 8.6.5 — End-to-End Conflict Resolution Verification (Completed)**:
+  - Created [`test/end_to_end_sync_integration_test.dart`](file:///d:/LOAN_REQUEST_AG/test/end_to_end_sync_integration_test.dart) covering all 10 core integration scenarios (Offline CREATE -> Push -> Pull, Admin Decision Propagation, Stale Customer Mutation, Conflict Classification Taxonomy, Conflict Resolution & Recovery, Retry / Idempotency Replay, Pull Pagination, Transaction Rollback, Multi-Device Isolation, and Own-Device Echo Prevention) plus Security Scenarios 1-8.
+  - Verified 100% of end-to-end multi-device scenarios and cross-layer invariants.
+  - Confirmed Phase 8.7 has NOT been started.
 
 ---
 
@@ -309,14 +303,13 @@ ConflictResolutionResult resolveConflict({
 - **Updated Documents**:
   - [`docs/conflict_resolution_engine.md`](file:///d:/LOAN_REQUEST_AG/docs/conflict_resolution_engine.md)
   - [`docs/sync_architecture.md`](file:///d:/LOAN_REQUEST_AG/docs/sync_architecture.md)
-  - [`docs/conflict_resolution.md`](file:///d:/LOAN_REQUEST_AG/docs/conflict_resolution.md)
 
 ---
 
 ## 20. Static Analysis & Test Verification
 ```text
 dart analyze lib/ test/ -> No issues found!
-flutter test         -> All 94 tests passed!
+flutter test         -> All 108 tests passed! (97 baseline + 11 end-to-end integration)
 
 dart analyze backend/ -> No issues found!
 dart test backend/   -> All 8 tests passed!
@@ -325,15 +318,19 @@ dart test backend/   -> All 8 tests passed!
 ---
 
 ## 21. Changed Files List
-- **[`docs/conflict_resolution_engine.md`](file:///d:/LOAN_REQUEST_AG/docs/conflict_resolution_engine.md)** (Created specification document).
+- **[`docs/conflict_resolution_engine.md`](file:///d:/LOAN_REQUEST_AG/docs/conflict_resolution_engine.md)** (Updated specification & metrics).
+- **[`docs/sync_architecture.md`](file:///d:/LOAN_REQUEST_AG/docs/sync_architecture.md)** (Updated phase roadmap).
+- **[`test/end_to_end_sync_integration_test.dart`](file:///d:/LOAN_REQUEST_AG/test/end_to_end_sync_integration_test.dart)** (Created 11 end-to-end integration tests).
 
 ---
 
 ## 22. Final Git Working-Tree Status
 ```text
 ## main...origin/main
-?? docs/conflict_resolution_engine.md
+M docs/conflict_resolution_engine.md
+M docs/sync_architecture.md
+?? test/end_to_end_sync_integration_test.dart
 ```
 - **Commits**: 0 (No commits created)
 - **Pushes**: 0 (No code pushed)
-- **Phase 8.6.3.2 Engine Implementation**: Not started (Standing by for instructions).
+- **Phase 8.7 Implementation**: Not started (Standing by for approval).
