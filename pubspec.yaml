@@ -43,6 +43,7 @@ dependencies:
   intl: ^0.20.3
   crypto: ^3.0.7
   http: ^1.2.0
+  connectivity_plus: ^6.1.4
 
 dev_dependencies:
   flutter_test:
