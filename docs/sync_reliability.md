@@ -263,5 +263,6 @@ All transaction boundaries, UUID v4 re-queueing, baseVersion alignments, and ide
 - **Phase 9.4 End-to-End Post-Sync Confirmation & Workflow Verification**: **COMPLETE**.
 - **Phase 10.1 Headless Isolate Runner & Inter-Process Locking Foundation**: **COMPLETE**.
 - **Phase 10.2 Android WorkManager Integration & Background Entry Point**: **COMPLETE**.
-- **Flutter Test Baseline**: 246 / 246 tests passed (187 baseline + 7 Phase 9.1 + 10 Phase 9.2 + 12 Phase 9.4 + 20 Phase 10.1 + 10 Phase 10.2 tests).
+- **Phase 10.3 iOS BGTaskScheduler Background Sync Integration**: **COMPLETE**.
+- **Flutter Test Baseline**: 258 / 258 tests passed (187 baseline + 7 Phase 9.1 + 10 Phase 9.2 + 12 Phase 9.4 + 20 Phase 10.1 + 10 Phase 10.2 + 12 Phase 10.3 tests).
 - **Backend Test Baseline**: 8 / 8 tests passed.
