@@ -261,5 +261,6 @@ All transaction boundaries, UUID v4 re-queueing, baseVersion alignments, and ide
 - **Phase 9.2 Post-Sync Confirmation & Notification Engine Status**: **COMPLETE**.
 - **Phase 9.3 Closed-App & Background Sync Architecture Spec**: **COMPLETE**.
 - **Phase 9.4 End-to-End Post-Sync Confirmation & Workflow Verification**: **COMPLETE**.
-- **Flutter Test Baseline**: 216 / 216 tests passed (187 baseline + 7 Phase 9.1 + 10 Phase 9.2 + 12 Phase 9.4 tests).
+- **Phase 10.1 Headless Isolate Runner & Inter-Process Locking Foundation**: **COMPLETE**.
+- **Flutter Test Baseline**: 236 / 236 tests passed (187 baseline + 7 Phase 9.1 + 10 Phase 9.2 + 12 Phase 9.4 + 20 Phase 10.1 tests).
 - **Backend Test Baseline**: 8 / 8 tests passed.
