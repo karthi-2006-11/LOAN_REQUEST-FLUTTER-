@@ -307,20 +307,7 @@ class LoanProvider extends ChangeNotifier {
       _userLoans.insert(0, created);
       _allLoans.insert(0, created);
 
-      // 1. Create User Notification (1 Submission Notification)
-      final userNotifId = 'NOTIF-SUB-${DateTime.now().millisecondsSinceEpoch}';
-      await _notificationRepository.createNotification(
-        NotificationModel(
-          id: userNotifId,
-          userId: userId,
-          title: 'Loan Application Submitted',
-          message: 'Your loan request $loanId for ${currencyFormatter.format(amount)} ($purpose) has been submitted and is pending review.',
-          type: NotificationType.loanSubmitted,
-          loanId: loanId,
-          createdAt: DateTime.now(),
-          isRead: false,
-        ),
-      );
+      // Note: Customer submission-success notification is created by SyncEngine ONLY upon confirmed backend acceptance (Phase 9.2).
 
       // 2. Create Admin Notification
       final adminNotifId = 'NOTIF-ADM-${DateTime.now().millisecondsSinceEpoch}';

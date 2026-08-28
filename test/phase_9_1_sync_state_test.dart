@@ -5,7 +5,6 @@ import 'package:loan_request_app/models/loan_model.dart';
 import 'package:loan_request_app/models/loan_priority.dart';
 import 'package:loan_request_app/models/loan_status.dart';
 import 'package:loan_request_app/models/loan_sync_status.dart';
-import 'package:loan_request_app/models/sync_queue_item.dart';
 import 'package:loan_request_app/providers/loan_provider.dart';
 import 'package:loan_request_app/repositories/loan_repository.dart';
 import 'package:loan_request_app/repositories/sync_queue_repository.dart';

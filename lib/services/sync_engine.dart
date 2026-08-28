@@ -6,8 +6,10 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import '../models/loan_model.dart';
 import '../models/loan_priority.dart';
 import '../models/loan_status.dart';
+import '../models/notification_model.dart';
 import '../models/sync_conflict_record.dart';
 import '../repositories/loan_repository.dart';
+import '../repositories/notification_repository.dart';
 import '../repositories/sync_queue_repository.dart';
 import 'conflict_recovery_service.dart';
 import 'database_service.dart';
@@ -46,6 +48,7 @@ class SyncEnginePullResult {
 class SyncEngine {
   final SyncQueueRepository _queueRepository;
   final LocalLoanRepository _loanRepository;
+  final NotificationRepository _notificationRepository;
   final DatabaseService _databaseService;
   final http.Client _httpClient;
   final ConflictRecoveryService _recoveryService;
@@ -53,11 +56,13 @@ class SyncEngine {
   SyncEngine({
     SyncQueueRepository? queueRepository,
     LocalLoanRepository? loanRepository,
+    NotificationRepository? notificationRepository,
     DatabaseService? databaseService,
     http.Client? httpClient,
     ConflictRecoveryService? recoveryService,
   })  : _queueRepository = queueRepository ?? LocalSyncQueueRepository(),
         _loanRepository = loanRepository ?? LocalLoanRepository(),
+        _notificationRepository = notificationRepository ?? LocalNotificationRepository(),
         _databaseService = databaseService ?? DatabaseService.instance,
         _httpClient = httpClient ?? http.Client(),
         _recoveryService = recoveryService ?? ConflictRecoveryService();
@@ -220,6 +225,23 @@ class SyncEngine {
         if (status == 'SYNCED') {
           await _queueRepository.updateStatus(item.id, 'SYNCED');
           synced++;
+
+          if (item.entityType == 'loan' && item.operation == 'CREATE') {
+            final loanId = item.entityId;
+            final userId = (item.payload['userId'] as String?) ?? 'user';
+            await _notificationRepository.createNotification(
+              NotificationModel(
+                id: 'NOTIF-SYNC-SUB-$loanId',
+                userId: userId,
+                title: 'Loan Submitted',
+                message: 'Your loan application has been successfully submitted to the server.',
+                type: NotificationType.loanSubmitted,
+                loanId: loanId,
+                createdAt: DateTime.now(),
+                isRead: false,
+              ),
+            );
+          }
         } else if (status == 'CONFLICT' || status == 'FORBIDDEN') {
           final serverState = res['serverState'] is Map<String, dynamic>
               ? res['serverState'] as Map<String, dynamic>
