@@ -221,11 +221,12 @@ All transaction boundaries, UUID v4 re-queueing, baseVersion alignments, and ide
 - **Dependencies**: Added `connectivity_plus: ^6.1.4`.
 - **Test Coverage**: 12 comprehensive unit and isolation test scenarios in [`test/connectivity_service_test.dart`](file:///d:/LOAN_REQUEST_AG/test/connectivity_service_test.dart).
 
-### Phase 8.7.3 — Synchronization Coordinator & Concurrency Guard (NEXT PHASE)
-- **Objective**: Create `SyncCoordinator` implementing `requestSync()`, request coalescing (`_hasPendingSyncRequest`), lock state (`_isSyncRunning`), PUSH $\rightarrow$ PULL ordering, and startup stale queue recovery (`SYNCING` $\rightarrow$ `PENDING_SYNC`).
-- **Target Files**: `lib/services/sync_coordinator.dart`, `test/sync_coordinator_test.dart`.
+### Phase 8.7.3 — Synchronization Coordinator & Concurrency Guard (COMPLETED)
+- **Objective**: Created `SyncCoordinator` ([`lib/services/sync_coordinator.dart`](file:///d:/LOAN_REQUEST_AG/lib/services/sync_coordinator.dart)) implementing `requestSync()`, single-flight concurrency guard (`_isSyncRunning`), request coalescing (`_hasPendingSyncRequest`), connectivity preflight check, and PUSH $\rightarrow$ PULL execution ordering.
+- **Files Created**: `lib/services/sync_coordinator.dart`, `test/sync_coordinator_test.dart`.
+- **Test Coverage**: 12 comprehensive unit and concurrency test scenarios in [`test/sync_coordinator_test.dart`](file:///d:/LOAN_REQUEST_AG/test/sync_coordinator_test.dart).
 
-### Phase 8.7.4 — App Lifecycle & Provider Event Integration
+### Phase 8.7.4 — App Lifecycle & Provider Event Integration (NEXT PHASE)
 - **Objective**: Wire `SyncCoordinator` into `WidgetsBindingObserver` (app startup & resume triggers), `AuthProvider` (post-login trigger), and `LoanProvider` (post-mutation triggers).
 - **Target Files**: `lib/providers/loan_provider.dart`, `lib/main.dart`, `test/sync_lifecycle_test.dart`.
 
@@ -239,6 +240,7 @@ All transaction boundaries, UUID v4 re-queueing, baseVersion alignments, and ide
 
 - **Phase 8.7.1 Audit Status**: **COMPLETE**.
 - **Phase 8.7.2 Connectivity Service Status**: **COMPLETE**.
-- **Flutter Test Baseline**: 120 / 120 tests passed (108 baseline + 12 connectivity tests).
+- **Phase 8.7.3 SyncCoordinator Status**: **COMPLETE**.
+- **Flutter Test Baseline**: 132 / 132 tests passed (120 baseline + 12 coordinator tests).
 - **Backend Test Baseline**: 8 / 8 tests passed.
-- **Phase 8.7.3 Implementation**: Standing by for explicit user instructions.
+- **Phase 8.7.4 Implementation**: Standing by for explicit user instructions.
