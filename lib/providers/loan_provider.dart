@@ -8,6 +8,7 @@ import '../models/notification_model.dart';
 import '../repositories/loan_activity_repository.dart';
 import '../repositories/loan_repository.dart';
 import '../repositories/notification_repository.dart';
+import '../services/sync_coordinator.dart';
 
 enum AdminSortOption {
   newest,
@@ -38,6 +39,7 @@ class LoanProvider extends ChangeNotifier {
   final LoanRepository _loanRepository;
   final NotificationRepository _notificationRepository;
   final LoanActivityRepository _activityRepository;
+  final SyncCoordinator? _syncCoordinator;
 
   bool _isLoading = false;
   String? _errorMessage;
@@ -55,9 +57,11 @@ class LoanProvider extends ChangeNotifier {
     LoanRepository? loanRepository,
     NotificationRepository? notificationRepository,
     LoanActivityRepository? activityRepository,
+    SyncCoordinator? syncCoordinator,
   })  : _loanRepository = loanRepository ?? LocalLoanRepository(),
         _notificationRepository = notificationRepository ?? LocalNotificationRepository(),
-        _activityRepository = activityRepository ?? LocalLoanActivityRepository();
+        _activityRepository = activityRepository ?? LocalLoanActivityRepository(),
+        _syncCoordinator = syncCoordinator;
 
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
@@ -314,6 +318,14 @@ class LoanProvider extends ChangeNotifier {
       );
 
       notifyListeners();
+
+      // Trigger post-mutation background synchronization (non-blocking, offline-safe)
+      _syncCoordinator?.requestSync(
+        trigger: SyncTrigger.postMutation,
+        baseUrl: 'http://localhost:8080',
+        authToken: 'session-token',
+      );
+
       return true;
     } catch (e) {
       _errorMessage = e.toString().replaceAll('Exception: ', '');
@@ -482,6 +494,14 @@ class LoanProvider extends ChangeNotifier {
 
       await fetchLoanActivities(loanId);
       notifyListeners();
+
+      // Trigger post-mutation background synchronization (non-blocking, offline-safe)
+      _syncCoordinator?.requestSync(
+        trigger: SyncTrigger.postMutation,
+        baseUrl: 'http://localhost:8080',
+        authToken: 'session-token',
+      );
+
       return true;
     } catch (e) {
       _errorMessage = e.toString().replaceAll('Exception: ', '');

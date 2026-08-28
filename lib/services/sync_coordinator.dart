@@ -17,6 +17,9 @@ enum SyncTrigger {
   /// Event fired following a local business entity mutation.
   postMutation,
 
+  /// Event fired following a successful user authentication login.
+  postLogin,
+
   /// App foreground resume event.
   appResumed,
 }

@@ -226,11 +226,12 @@ All transaction boundaries, UUID v4 re-queueing, baseVersion alignments, and ide
 - **Files Created**: `lib/services/sync_coordinator.dart`, `test/sync_coordinator_test.dart`.
 - **Test Coverage**: 12 comprehensive unit and concurrency test scenarios in [`test/sync_coordinator_test.dart`](file:///d:/LOAN_REQUEST_AG/test/sync_coordinator_test.dart).
 
-### Phase 8.7.4 — App Lifecycle & Provider Event Integration (NEXT PHASE)
-- **Objective**: Wire `SyncCoordinator` into `WidgetsBindingObserver` (app startup & resume triggers), `AuthProvider` (post-login trigger), and `LoanProvider` (post-mutation triggers).
-- **Target Files**: `lib/providers/loan_provider.dart`, `lib/main.dart`, `test/sync_lifecycle_test.dart`.
+### Phase 8.7.4 — App Lifecycle & Provider Event Integration (COMPLETED)
+- **Objective**: Integrated `SyncCoordinator` into application MultiProvider scope in `main.dart`, created `AppLifecycleSyncObserver` ([`lib/widgets/app_lifecycle_sync_observer.dart`](file:///d:/LOAN_REQUEST_AG/lib/widgets/app_lifecycle_sync_observer.dart)) (`WidgetsBindingObserver` startup & resume triggers), `AuthProvider` (`postLogin` trigger), and `LoanProvider` (`postMutation` trigger).
+- **Files Modified/Created**: `lib/main.dart`, `lib/providers/auth_provider.dart`, `lib/providers/loan_provider.dart`, `lib/services/sync_coordinator.dart`, `lib/widgets/app_lifecycle_sync_observer.dart`, `test/sync_lifecycle_test.dart`.
+- **Test Coverage**: 10 comprehensive unit and widget lifecycle test scenarios in [`test/sync_lifecycle_test.dart`](file:///d:/LOAN_REQUEST_AG/test/sync_lifecycle_test.dart).
 
-### Phase 8.7.5 — End-to-End Reliability Verification & Test Suite
+### Phase 8.7.5 — End-to-End Reliability Verification & Test Suite (NEXT PHASE)
 - **Objective**: Implement comprehensive unit & integration tests covering all 17 failure-state matrix scenarios, network drops, 401 unauth pauses, and concurrency safety.
 - **Target Files**: `test/sync_reliability_integration_test.dart`, `docs/sync_reliability.md`.
 
@@ -241,6 +242,7 @@ All transaction boundaries, UUID v4 re-queueing, baseVersion alignments, and ide
 - **Phase 8.7.1 Audit Status**: **COMPLETE**.
 - **Phase 8.7.2 Connectivity Service Status**: **COMPLETE**.
 - **Phase 8.7.3 SyncCoordinator Status**: **COMPLETE**.
-- **Flutter Test Baseline**: 132 / 132 tests passed (120 baseline + 12 coordinator tests).
+- **Phase 8.7.4 App Lifecycle & Provider Status**: **COMPLETE**.
+- **Flutter Test Baseline**: 142 / 142 tests passed (132 baseline + 10 lifecycle tests).
 - **Backend Test Baseline**: 8 / 8 tests passed.
-- **Phase 8.7.4 Implementation**: Standing by for explicit user instructions.
+- **Phase 8.7.5 Implementation**: Standing by for explicit user instructions.

@@ -6,8 +6,9 @@ import 'navigation/app_router.dart';
 import 'providers/auth_provider.dart';
 import 'providers/loan_provider.dart';
 import 'providers/notification_provider.dart';
-
 import 'services/migration_service.dart';
+import 'services/sync_coordinator.dart';
+import 'widgets/app_lifecycle_sync_observer.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -22,24 +23,34 @@ class LoanRequestApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
+        Provider<SyncCoordinator>(
+          create: (_) => SyncCoordinator(),
+          dispose: (_, coordinator) => coordinator.dispose(),
+        ),
         ChangeNotifierProvider<AuthProvider>(
-          create: (_) => AuthProvider(),
+          create: (context) => AuthProvider(
+            syncCoordinator: context.read<SyncCoordinator>(),
+          ),
         ),
         ChangeNotifierProvider<LoanProvider>(
-          create: (_) => LoanProvider(),
+          create: (context) => LoanProvider(
+            syncCoordinator: context.read<SyncCoordinator>(),
+          ),
         ),
         ChangeNotifierProvider<NotificationProvider>(
           create: (_) => NotificationProvider(),
         ),
       ],
-      child: MaterialApp(
-        title: AppConstants.appName,
-        debugShowCheckedModeBanner: false,
-        theme: AppTheme.lightTheme,
-        darkTheme: AppTheme.darkTheme,
-        themeMode: ThemeMode.system,
-        initialRoute: AppRouter.splash,
-        onGenerateRoute: AppRouter.onGenerateRoute,
+      child: AppLifecycleSyncObserver(
+        child: MaterialApp(
+          title: AppConstants.appName,
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.lightTheme,
+          darkTheme: AppTheme.darkTheme,
+          themeMode: ThemeMode.system,
+          initialRoute: AppRouter.splash,
+          onGenerateRoute: AppRouter.onGenerateRoute,
+        ),
       ),
     );
   }

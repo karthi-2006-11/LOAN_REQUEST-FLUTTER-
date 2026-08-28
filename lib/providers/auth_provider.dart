@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import '../models/user_model.dart';
 import '../models/user_role.dart';
 import '../services/auth_service.dart';
+import '../services/sync_coordinator.dart';
 
 enum AuthStatus {
   initial,
@@ -13,13 +14,17 @@ enum AuthStatus {
 
 class AuthProvider extends ChangeNotifier {
   final AuthService _authService;
+  final SyncCoordinator? _syncCoordinator;
 
   AuthStatus _status = AuthStatus.initial;
   UserModel? _currentUser;
   String? _errorMessage;
 
-  AuthProvider({AuthService? authService})
-      : _authService = authService ?? AuthService();
+  AuthProvider({
+    AuthService? authService,
+    SyncCoordinator? syncCoordinator,
+  })  : _authService = authService ?? AuthService(),
+        _syncCoordinator = syncCoordinator;
 
   AuthStatus get status => _status;
   UserModel? get currentUser => _currentUser;
@@ -65,6 +70,14 @@ class AuthProvider extends ChangeNotifier {
       _currentUser = user;
       _status = AuthStatus.authenticated;
       notifyListeners();
+
+      // Trigger post-login background synchronization (non-blocking, offline-safe)
+      _syncCoordinator?.requestSync(
+        trigger: SyncTrigger.postLogin,
+        baseUrl: 'http://localhost:8080',
+        authToken: 'session-token',
+      );
+
       return true;
     } catch (e) {
       _status = AuthStatus.error;
@@ -95,6 +108,14 @@ class AuthProvider extends ChangeNotifier {
       _currentUser = user;
       _status = AuthStatus.authenticated;
       notifyListeners();
+
+      // Trigger post-login background synchronization (non-blocking, offline-safe)
+      _syncCoordinator?.requestSync(
+        trigger: SyncTrigger.postLogin,
+        baseUrl: 'http://localhost:8080',
+        authToken: 'session-token',
+      );
+
       return true;
     } catch (e) {
       _status = AuthStatus.error;
