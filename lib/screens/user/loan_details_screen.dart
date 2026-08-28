@@ -11,6 +11,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/loan_provider.dart';
 import '../../widgets/priority_badge.dart';
 import '../../widgets/status_chip.dart';
+import '../../widgets/sync_status_badge.dart';
 
 class LoanDetailsScreen extends StatefulWidget {
   final String loanId;
@@ -206,7 +207,16 @@ class _LoanDetailsScreenState extends State<LoanDetailsScreen> {
                               color: AppColors.primary,
                             ),
                           ),
-                          StatusChip(status: loan.status),
+                          Row(
+                            children: [
+                              SyncStatusBadge(
+                                status: Provider.of<LoanProvider>(context).getSyncStatus(loan.id),
+                                isCompact: true,
+                              ),
+                              const SizedBox(width: 6),
+                              StatusChip(status: loan.status),
+                            ],
+                          ),
                         ],
                       ),
                       const SizedBox(height: 16),

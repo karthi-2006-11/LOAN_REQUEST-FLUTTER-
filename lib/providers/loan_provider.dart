@@ -4,10 +4,12 @@ import '../models/loan_activity_model.dart';
 import '../models/loan_model.dart';
 import '../models/loan_priority.dart';
 import '../models/loan_status.dart';
+import '../models/loan_sync_status.dart';
 import '../models/notification_model.dart';
 import '../repositories/loan_activity_repository.dart';
 import '../repositories/loan_repository.dart';
 import '../repositories/notification_repository.dart';
+import '../repositories/sync_queue_repository.dart';
 import '../services/sync_coordinator.dart';
 
 enum AdminSortOption {
@@ -39,6 +41,7 @@ class LoanProvider extends ChangeNotifier {
   final LoanRepository _loanRepository;
   final NotificationRepository _notificationRepository;
   final LoanActivityRepository _activityRepository;
+  final SyncQueueRepository _queueRepository;
   final SyncCoordinator? _syncCoordinator;
 
   bool _isLoading = false;
@@ -46,6 +49,7 @@ class LoanProvider extends ChangeNotifier {
   List<LoanModel> _userLoans = [];
   List<LoanModel> _allLoans = [];
   List<LoanActivityModel> _currentLoanActivities = [];
+  Map<String, LoanSyncStatus> _syncStatusMap = {};
 
   // Filter & Search State
   LoanStatus? _selectedStatusFilter;
@@ -57,10 +61,12 @@ class LoanProvider extends ChangeNotifier {
     LoanRepository? loanRepository,
     NotificationRepository? notificationRepository,
     LoanActivityRepository? activityRepository,
+    SyncQueueRepository? queueRepository,
     SyncCoordinator? syncCoordinator,
   })  : _loanRepository = loanRepository ?? LocalLoanRepository(),
         _notificationRepository = notificationRepository ?? LocalNotificationRepository(),
         _activityRepository = activityRepository ?? LocalLoanActivityRepository(),
+        _queueRepository = queueRepository ?? LocalSyncQueueRepository(),
         _syncCoordinator = syncCoordinator;
 
   bool get isLoading => _isLoading;
@@ -69,6 +75,31 @@ class LoanProvider extends ChangeNotifier {
   LoanPriority? get selectedPriorityFilter => _selectedPriorityFilter;
   String get searchQuery => _searchQuery;
   AdminSortOption get selectedSortOption => _selectedSortOption;
+
+  /// Return customer-facing sync status for a loan
+  LoanSyncStatus getSyncStatus(String loanId) {
+    return _syncStatusMap[loanId] ?? LoanSyncStatus.synced;
+  }
+
+  /// Re-evaluate sync queue status for all loaded loans
+  Future<void> refreshSyncStatuses() async {
+    final newMap = <String, LoanSyncStatus>{};
+    final allCombined = {..._userLoans, ..._allLoans};
+    for (final loan in allCombined) {
+      final statusStr = await _queueRepository.getLatestQueueStatus('loan', loan.id);
+      if (statusStr == null || statusStr == 'SYNCED') {
+        newMap[loan.id] = LoanSyncStatus.synced;
+      } else if (statusStr == 'PENDING_SYNC' || statusStr == 'SYNCING') {
+        newMap[loan.id] = LoanSyncStatus.pendingSync;
+      } else if (statusStr == 'SYNC_FAILED' || statusStr == 'CONFLICT') {
+        newMap[loan.id] = LoanSyncStatus.syncFailed;
+      } else {
+        newMap[loan.id] = LoanSyncStatus.synced;
+      }
+    }
+    _syncStatusMap = newMap;
+    notifyListeners();
+  }
 
   /// All loans for the active user
   List<LoanModel> get userLoans => List.unmodifiable(_userLoans);
@@ -207,6 +238,7 @@ class LoanProvider extends ChangeNotifier {
 
     try {
       _userLoans = await _loanRepository.getUserLoans(userId);
+      await refreshSyncStatuses();
     } catch (e) {
       _errorMessage = e.toString().replaceAll('Exception: ', '');
     } finally {
@@ -223,6 +255,7 @@ class LoanProvider extends ChangeNotifier {
 
     try {
       _allLoans = await _loanRepository.getAllLoans();
+      await refreshSyncStatuses();
     } catch (e) {
       _errorMessage = e.toString().replaceAll('Exception: ', '');
     } finally {
@@ -317,6 +350,7 @@ class LoanProvider extends ChangeNotifier {
         ),
       );
 
+      await refreshSyncStatuses();
       notifyListeners();
 
       // Trigger post-mutation background synchronization (non-blocking, offline-safe)

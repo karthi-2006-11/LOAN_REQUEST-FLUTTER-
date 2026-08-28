@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 import '../core/constants/app_colors.dart';
 import '../models/loan_model.dart';
+import '../providers/loan_provider.dart';
 import 'priority_badge.dart';
 import 'status_chip.dart';
+import 'sync_status_badge.dart';
 
 /// Interactive card widget displaying summary of a single loan application.
 class LoanCard extends StatelessWidget {
@@ -24,6 +27,7 @@ class LoanCard extends StatelessWidget {
     final isDark = theme.brightness == Brightness.dark;
     final currencyFormatter = NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 2);
     final dateFormatter = DateFormat('MMM dd, yyyy');
+    final syncStatus = Provider.of<LoanProvider>(context).getSyncStatus(loan.id);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 14),
@@ -42,7 +46,7 @@ class LoanCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header Row: Purpose, Applicant Name & Status Chip
+              // Header Row: Purpose, Applicant Name, Sync Status & Status Chip
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -78,7 +82,9 @@ class LoanCard extends StatelessWidget {
                       ],
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 6),
+                  SyncStatusBadge(status: syncStatus, isCompact: true),
+                  const SizedBox(width: 6),
                   StatusChip(status: loan.status),
                 ],
               ),

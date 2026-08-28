@@ -13,6 +13,7 @@ abstract class SyncQueueRepository {
   Future<int> getLastAppliedServerVersion();
   Future<void> updateLastAppliedServerVersion(int version, {DatabaseExecutor? txn});
   Future<bool> hasPendingLocalMutation(String entityType, String entityId, {DatabaseExecutor? txn});
+  Future<String?> getLatestQueueStatus(String entityType, String entityId, {DatabaseExecutor? txn});
   Future<void> saveConflictRecord(SyncConflictRecord conflict, {DatabaseExecutor? txn});
   Future<SyncConflictRecord?> getConflictRecordByClientOperationId(String clientOperationId, {DatabaseExecutor? txn});
 }
@@ -147,6 +148,21 @@ class LocalSyncQueueRepository implements SyncQueueRepository {
       limit: 1,
     );
     return maps.isNotEmpty;
+  }
+
+  @override
+  Future<String?> getLatestQueueStatus(String entityType, String entityId, {DatabaseExecutor? txn}) async {
+    final executor = txn ?? await _databaseService.database;
+    final maps = await executor.query(
+      'sync_queue',
+      columns: ['status'],
+      where: 'entityType = ? AND entityId = ?',
+      whereArgs: [entityType, entityId],
+      orderBy: 'createdAt DESC',
+      limit: 1,
+    );
+    if (maps.isEmpty) return null;
+    return maps.first['status'] as String?;
   }
 
   @override

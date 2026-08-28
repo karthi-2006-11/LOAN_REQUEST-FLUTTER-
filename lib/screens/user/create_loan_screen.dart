@@ -102,7 +102,7 @@ class _CreateLoanScreenState extends State<CreateLoanScreen> {
     if (success) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Loan application submitted successfully!'),
+          content: Text('Loan application created locally (Saved Offline).'),
           backgroundColor: AppColors.success,
           behavior: SnackBarBehavior.floating,
         ),
