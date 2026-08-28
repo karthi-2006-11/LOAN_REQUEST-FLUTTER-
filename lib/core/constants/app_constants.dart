@@ -12,6 +12,10 @@ class AppConstants {
   static const String keyUserRole = 'key_user_role';
   static const String keyUserId = 'key_user_id';
   static const String keyUserName = 'key_user_name';
+  static const String keyAccessToken = 'key_access_token';
+  static const String keyRefreshToken = 'key_refresh_token';
+  static const String keyAccessTokenExpiresAt = 'key_access_token_expires_at';
+  static const String keyReauthRequired = 'key_reauth_required';
 
   // Seed / Demo Credentials (FOR DEMO & TEST PURPOSES)
   static const String defaultAdminEmail = 'admin@loanapp.com';

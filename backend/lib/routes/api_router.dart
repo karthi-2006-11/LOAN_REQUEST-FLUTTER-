@@ -22,6 +22,7 @@ Router buildApiRouter({
   // 2. Auth routes (unauthenticated)
   router.post('/auth/register', authController.register);
   router.post('/auth/login', authController.login);
+  router.post('/auth/refresh', authController.refresh);
 
   // 3. Authenticated Loan & Sync routes
   final authMiddleware = buildAuthMiddleware(config);

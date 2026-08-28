@@ -157,17 +157,29 @@ class BackgroundSyncRunner {
       // 2. Initialize SQLite Database
       await _databaseService.database;
 
-      // 3. Retrieve Authentication Credentials
+      // 3. Retrieve & Validate Authentication Credentials
       String token = authToken ?? '';
       if (token.isEmpty) {
-        final session = await _authService.getPersistedSession();
-        if (session == null) {
+        try {
+          final session = await _authService.getValidSession(baseUrl: targetBaseUrl);
+          if (session == null) {
+            return BackgroundSyncResult(
+              status: BackgroundSyncStatus.authRequired,
+              error: 'Authentication required: No valid or refreshable user session found',
+            );
+          }
+          token = session.accessToken;
+        } on AuthRequiredException catch (e) {
           return BackgroundSyncResult(
             status: BackgroundSyncStatus.authRequired,
-            error: 'Authentication required: No persisted user session found',
+            error: 'Authentication required: ${e.message}',
+          );
+        } on TemporaryAuthException catch (e) {
+          return BackgroundSyncResult(
+            status: BackgroundSyncStatus.failed,
+            error: 'Temporary authentication failure: ${e.message}',
           );
         }
-        token = 'session-token';
       }
 
       // 4. Connectivity Preflight Check
@@ -189,17 +201,41 @@ class BackgroundSyncRunner {
           );
 
       // 6. Execute PUSH
-      final pushRes = await syncEngine.pushPending(
+      var pushRes = await syncEngine.pushPending(
         baseUrl: targetBaseUrl,
         authToken: token,
       );
 
+      // 6a. Unexpected HTTP 401 retry handling (at most 1 refresh retry cycle)
       if (pushRes.globalError != null && pushRes.globalError!.contains('UNAUTHORIZED')) {
-        return BackgroundSyncResult(
-          status: BackgroundSyncStatus.authRequired,
-          pushResult: pushRes,
-          error: pushRes.globalError,
-        );
+        try {
+          final refreshed = await _authService.refreshSessionIfNeeded(baseUrl: targetBaseUrl);
+          if (refreshed != null) {
+            token = refreshed.accessToken;
+            pushRes = await syncEngine.pushPending(
+              baseUrl: targetBaseUrl,
+              authToken: token,
+            );
+          } else {
+            return BackgroundSyncResult(
+              status: BackgroundSyncStatus.authRequired,
+              pushResult: pushRes,
+              error: pushRes.globalError,
+            );
+          }
+        } on AuthRequiredException {
+          return BackgroundSyncResult(
+            status: BackgroundSyncStatus.authRequired,
+            pushResult: pushRes,
+            error: pushRes.globalError,
+          );
+        } on TemporaryAuthException catch (e) {
+          return BackgroundSyncResult(
+            status: BackgroundSyncStatus.failed,
+            pushResult: pushRes,
+            error: e.message,
+          );
+        }
       }
 
       // 7. Execute PULL

@@ -351,5 +351,51 @@ void main() {
       );
       expect(invalidPull.statusCode, equals(400));
     });
+
+    test('9. Refresh Endpoint: POST /api/auth/refresh rotates refresh tokens and returns new access token', () async {
+      final regRes = await http.post(
+        Uri.parse('$baseUrl/auth/register'),
+        headers: {'content-type': 'application/json'},
+        body: jsonEncode({
+          'fullName': 'Refresh User',
+          'email': 'refresh@test.com',
+          'password': 'password123',
+        }),
+      );
+      expect(regRes.statusCode, equals(201));
+      final regData = jsonDecode(regRes.body)['data'];
+      final initialRefreshToken = regData['refreshToken'] as String;
+
+      final refreshRes = await http.post(
+        Uri.parse('$baseUrl/auth/refresh'),
+        headers: {'content-type': 'application/json'},
+        body: jsonEncode({'refreshToken': initialRefreshToken}),
+      );
+      expect(refreshRes.statusCode, equals(200));
+
+      final refreshData = jsonDecode(refreshRes.body)['data'];
+      final newAccessToken = refreshData['token'] as String;
+      final newRefreshToken = refreshData['refreshToken'] as String;
+
+      expect(newAccessToken, isNotEmpty);
+      expect(newRefreshToken, isNotEmpty);
+      expect(newRefreshToken, isNot(equals(initialRefreshToken)));
+
+      // Token Rotation: Old refresh token should now be rejected (HTTP 401)
+      final reusedRefreshRes = await http.post(
+        Uri.parse('$baseUrl/auth/refresh'),
+        headers: {'content-type': 'application/json'},
+        body: jsonEncode({'refreshToken': initialRefreshToken}),
+      );
+      expect(reusedRefreshRes.statusCode, equals(401));
+
+      // Malformed request (empty body / missing token) returns 400
+      final badRes = await http.post(
+        Uri.parse('$baseUrl/auth/refresh'),
+        headers: {'content-type': 'application/json'},
+        body: jsonEncode({}),
+      );
+      expect(badRes.statusCode, equals(400));
+    });
   });
 }

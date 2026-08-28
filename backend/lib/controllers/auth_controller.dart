@@ -12,6 +12,8 @@ class AuthController {
 
   AuthController({required this.userRepository, required this.config});
 
+  static final Set<String> _activeRefreshTokens = {};
+
   Future<Response> register(Request request) async {
     try {
       final bodyStr = await request.readAsString();
@@ -61,12 +63,16 @@ class AuthController {
 
       await userRepository.createUser(newUser);
       final token = JwtUtil.generateToken(userId: newUser.id, role: newUser.role, config: config);
+      final refreshToken = JwtUtil.generateRefreshToken(userId: newUser.id, role: newUser.role, config: config);
+      _activeRefreshTokens.add(refreshToken);
 
       return _jsonResponse(201, {
         'success': true,
         'data': {
           'user': newUser.toJson(),
           'token': token,
+          'refreshToken': refreshToken,
+          'expiresIn': config.jwtExpirationSeconds,
         }
       });
     } catch (e) {
@@ -100,12 +106,64 @@ class AuthController {
       }
 
       final token = JwtUtil.generateToken(userId: user.id, role: user.role, config: config);
+      final refreshToken = JwtUtil.generateRefreshToken(userId: user.id, role: user.role, config: config);
+      _activeRefreshTokens.add(refreshToken);
 
       return _jsonResponse(200, {
         'success': true,
         'data': {
           'user': user.toJson(),
           'token': token,
+          'refreshToken': refreshToken,
+          'expiresIn': config.jwtExpirationSeconds,
+        }
+      });
+    } catch (e) {
+      return _jsonResponse(500, {'success': false, 'error': {'code': 'SERVER_ERROR', 'message': e.toString()}});
+    }
+  }
+
+  Future<Response> refresh(Request request) async {
+    try {
+      final bodyStr = await request.readAsString();
+      if (bodyStr.isEmpty) {
+        return _jsonResponse(400, {'success': false, 'error': {'code': 'INVALID_BODY', 'message': 'Request body is empty'}});
+      }
+
+      final body = jsonDecode(bodyStr) as Map<String, dynamic>;
+      final refreshTokenStr = (body['refreshToken'] as String?)?.trim();
+
+      if (refreshTokenStr == null || refreshTokenStr.isEmpty) {
+        return _jsonResponse(400, {'success': false, 'error': {'code': 'MISSING_REFRESH_TOKEN', 'message': 'Refresh token is required'}});
+      }
+
+      final verified = JwtUtil.verifyRefreshToken(refreshTokenStr, config);
+      if (verified == null) {
+        return _jsonResponse(401, {'success': false, 'error': {'code': 'INVALID_REFRESH_TOKEN', 'message': 'Refresh token is invalid or expired'}});
+      }
+
+      // Check if refresh token was already revoked / rotated
+      if (!_activeRefreshTokens.contains(refreshTokenStr)) {
+        return _jsonResponse(401, {'success': false, 'error': {'code': 'REVOKED_REFRESH_TOKEN', 'message': 'Refresh token has been revoked'}});
+      }
+
+      final user = await userRepository.findById(verified.userId);
+      if (user == null) {
+        return _jsonResponse(401, {'success': false, 'error': {'code': 'USER_NOT_FOUND', 'message': 'User no longer exists'}});
+      }
+
+      // Token Rotation: Revoke old refresh token, generate new access token and new refresh token
+      _activeRefreshTokens.remove(refreshTokenStr);
+      final newAccessToken = JwtUtil.generateToken(userId: user.id, role: user.role, config: config);
+      final newRefreshToken = JwtUtil.generateRefreshToken(userId: user.id, role: user.role, config: config);
+      _activeRefreshTokens.add(newRefreshToken);
+
+      return _jsonResponse(200, {
+        'success': true,
+        'data': {
+          'token': newAccessToken,
+          'refreshToken': newRefreshToken,
+          'expiresIn': config.jwtExpirationSeconds,
         }
       });
     } catch (e) {
