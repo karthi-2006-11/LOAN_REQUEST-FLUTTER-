@@ -259,5 +259,6 @@ All transaction boundaries, UUID v4 re-queueing, baseVersion alignments, and ide
 - **Phase 8.8.3 Final System Surgical Audit Status**: **COMPLETE**.
 - **Phase 9.1 Loan Sync State Model & UI Badges Status**: **COMPLETE**.
 - **Phase 9.2 Post-Sync Confirmation & Notification Engine Status**: **COMPLETE**.
+- **Phase 9.3 Closed-App & Background Sync Architecture Spec**: **COMPLETE**.
 - **Flutter Test Baseline**: 204 / 204 tests passed (187 baseline + 7 Phase 9.1 + 10 Phase 9.2 tests).
 - **Backend Test Baseline**: 8 / 8 tests passed.

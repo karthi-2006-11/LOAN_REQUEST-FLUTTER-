@@ -351,4 +351,289 @@ To prevent duplicate requests when network retries occur (e.g., client sends upl
 - **Phase 9 — Production Workflow & Post-Sync Confirmation**:
   - **Phase 9.1 — Loan Sync State Model & UI Status Badges (Completed)**: Introduced [`LoanSyncStatus`](file:///d:/LOAN_REQUEST_AG/lib/models/loan_sync_status.dart) (`pendingSync`, `synced`, `syncFailed`) derived authoritatively from `sync_queue` state. Created [`SyncStatusBadge`](file:///d:/LOAN_REQUEST_AG/lib/widgets/sync_status_badge.dart) UI component for `LoanCard` and `LoanDetailsScreen`. Corrected loan submission feedback to eliminate premature "submitted successfully" claims before backend acceptance. Verified by 7 focused unit and widget tests in [`test/phase_9_1_sync_state_test.dart`](file:///d:/LOAN_REQUEST_AG/test/phase_9_1_sync_state_test.dart).
   - **Phase 9.2 — Post-Sync Confirmation & Notification Engine (Completed)**: Implemented durable local submission-success notification creation triggered exclusively upon confirmed backend acceptance (`status == 'SYNCED'` in `SyncEngine.pushPending()`). Deduplicated via deterministic ID (`NOTIF-SYNC-SUB-<loanId>`) and SQLite primary key constraints. Corrected `LoanProvider.createLoan()` to prevent premature local user notification creation offline. Verified by 10 comprehensive tests in [`test/phase_9_2_post_sync_confirmation_test.dart`](file:///d:/LOAN_REQUEST_AG/test/phase_9_2_post_sync_confirmation_test.dart).
-  - **Phase 9.3+ — Background Sync Specification & Integration**: Background sync architecture specification and integration (Not started).
+  - **Phase 9.3 — Closed-App & Background Sync Architecture Specification (Completed)**: Produced comprehensive, production-safe architectural specification for closed-app and background synchronization across Android (`WorkManager`), iOS (`BGTaskScheduler`), and Server-Push (`FCM/APNs`). Defined 3-tier execution states, headless isolate entry point contract, authentication states (`AUTHENTICATED`, `AUTH_REQUIRED`, `SYNC_BLOCKED_AUTH`), SQLite thread-safety boundaries, single-flight mutex file-lock guards, and an 11-row failure/retry matrix.
+  - **Phase 9.4+ — End-to-End Post-Sync Confirmation & Workflow Verification Suite**: Final post-sync confirmation workflow test suite (Not started).
+
+---
+
+## 13. Phase 9.3 — Closed-App & Background Sync Architecture Specification
+
+### 13.1 Execution State Taxonomy
+
+BlackVault explicitly defines three distinct execution states across the mobile OS process lifecycle:
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│ 1. ACTIVE / FOREGROUND                                                                  │
+│    • Flutter VM: Active & Running in Main Thread Isolate.                              │
+│    • In-Memory Services: SyncCoordinator, ConnectivityService, LoanProvider attached.    │
+│    • Trigger Seams: Startup, App Resume, Post-Mutation, Manual Pull-to-Refresh.        │
+│    • UI Feedback: Real-time badges (PENDING_SYNC, SYNCED, SYNC_FAILED) & SnackBar.     │
+└─────────────────────────────────────────────────────────────────────────────────────────┘
+                                           │
+                                           ▼
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│ 2. BACKGROUNDED / SUSPENDED                                                             │
+│    • Flutter VM: Process remains in RAM temporarily before OS suspension.               │
+│    • In-Memory Services: WidgetsBindingObserver receives AppLifecycleState.paused.       │
+│    • Execution Boundary: Limited execution window (5-10s max) before OS suspends VM.   │
+│    • Guarantee: Dart execution DOES NOT continue indefinitely in suspended state.       │
+└─────────────────────────────────────────────────────────────────────────────────────────┘
+                                           │
+                                           ▼
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│ 3. TERMINATED / PROCESS DEAD                                                            │
+│    • Flutter VM: Process is completely killed by OS (OOM / swipe-kill / power cycle).  │
+│    • In-Memory Services: NO SyncCoordinator, NO SyncEngine, NO Dart memory state.        │
+│    • Execution Boundary: Requires Native OS Scheduler (WorkManager / BGTaskScheduler)    │
+│      or Server-Initiated Push Notification (FCM / APNs) to launch headless isolate.     │
+└─────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 13.2 Closed-App Synchronization Architecture & Layer Contracts
+
+To execute synchronization when the app process is dead, the architecture introduces a headless Dart isolate runner (`@pragma('vm:entry-point') backgroundSyncRunner`).
+
+```mermaid
+graph TD
+    OS[Native OS Scheduler WorkManager / BGTaskScheduler] --> Bridge[Native Bridge Plugin]
+    Bridge --> Isolate[Headless Dart Isolate @pragma vm:entry-point]
+    Isolate --> Lock[File Lock Mutex Single-Flight Guard]
+    Lock --> DB[SQLite Init blackvault.db Schema v3]
+    DB --> Auth[Secure Credential Retrieval]
+    Auth --> Health[Connectivity Preflight Check GET /api/health]
+    Health --> Engine[SyncEngine Reuse]
+    Engine --> Push[1. PUSH Pending sync_queue]
+    Push --> Pull[2. PULL Server Changes]
+    Pull --> Notif[3. Generate Durable Phase 9.2 Submission Notification]
+    Notif --> Close[Close SQLite DB & Release Mutex]
+    Close --> OSResult[Return OS Result SUCCESS / RETRY / BLOCKED]
+```
+
+#### Layer Ownership & Contract Matrix
+
+| Architectural Layer | Responsibilities & Ownership | Must NOT Do |
+| :--- | :--- | :--- |
+| **Native OS Scheduler** | Schedules periodic/opportunistic background tasks under OS power & battery constraints. | Must NOT parse business payloads or modify SQLite directly. |
+| **Native Bridge Plugin** | Wakes native process, initializes Flutter engine bindings, and invokes Dart entry point. | Must NOT bypass authentication or execute raw REST calls. |
+| **Headless Dart Isolate** | `@pragma('vm:entry-point')` Dart function executing in isolated memory isolate. | Must NOT access Flutter UI framework or `BuildContext`. |
+| **File Lock Mutex** | Ensures single-flight execution between foreground app launch and background isolate. | Must NOT delete queue records or alter database transactions. |
+| **SQLite DB Service** | Thread-safe single-connection initialization of `blackvault.db` (Schema v3). | Must NOT introduce new database tables or schema migrations. |
+| **Auth Manager** | Reads stored JWT/session credentials from secure storage (`flutter_secure_storage`). | Must NOT fabricate credentials or perform unauthenticated sync. |
+| **`SyncEngine` (Reused)** | Authoritative synchronization runner (`pushPending` + `pullChanges` + conflict recovery). | Must NOT alter existing single-flight or conflict taxonomy rules. |
+
+---
+
+### 13.3 Android Design — `WorkManager` Specification
+
+> [!NOTE]
+> Designed for future implementation. **Zero native code was written in Phase 9.3.**
+
+- **Scheduler Mechanism**: Android `WorkManager` API via `workmanager` Flutter plugin.
+- **Constraints**:
+  - `NetworkType.CONNECTED` (Requires active cellular or Wi-Fi data connection).
+  - `RequiresBatteryNotLow(true)` (Preserves device battery health).
+- **Execution Entry Point**:
+  ```dart
+  @pragma('vm:entry-point')
+  void callbackDispatcher() {
+    Workmanager().executeTask((task, inputData) async {
+      final runner = BackgroundSyncRunner();
+      return await runner.executeBackgroundSync();
+    });
+  }
+  ```
+- **Tree-Shaking Protection**: The `@pragma('vm:entry-point')` annotation prevents the Dart AOT compiler from stripping the headless background entry point during release builds.
+- **Return Code Mapping**:
+  - `Result.success()` $\rightarrow$ All queue items processed or queue empty.
+  - `Result.retry()` $\rightarrow$ Transitory network timeout or HTTP 5xx.
+  - `Result.failure()` $\rightarrow$ HTTP 401 unauthenticated or unrecoverable error (`AUTH_REQUIRED`).
+
+---
+
+### 13.4 iOS Design — `BGTaskScheduler` Specification
+
+> [!WARNING]
+> iOS background execution is **opportunistic** and **NOT guaranteed** at a precise clock time. iOS OS power management determines execution windows based on device usage patterns, battery level, and network availability.
+
+- **Scheduler Mechanism**: iOS `BGTaskScheduler` framework via `BGAppRefreshTask` / `BGProcessingTask`.
+- **`Info.plist` Permitted Identifiers**: `com.blackvault.app.backgroundsync` registered under `BGTaskSchedulerPermittedIdentifiers`.
+- **Task Expiration Handling**:
+  - iOS provides a strict execution budget (typically 30 seconds).
+  - `task.expirationHandler` must immediately signal `SyncEngine` to stop processing remaining queue batches, commit current SQLite transaction safely, release file lock, and call `task.setTaskCompleted(success: false)`.
+- **Durability Guarantee**: Any queue items pushed before task expiration remain marked `SYNCED` in SQLite. Unprocessed items remain `PENDING_SYNC` for the next execution opportunity.
+
+---
+
+### 13.5 Server-Push Alternative (`FCM / APNs`) Architecture
+
+Server-initiated push notifications represent a **secondary, event-driven** wake-up mechanism complementary to client-side background schedulers:
+
+```text
+CLIENT-DRIVEN BACKGROUND SCHEDULER:
+Client OS periodically/opportunistically requests execution time → PUSH/PULL.
+
+SERVER-INITIATED PUSH NOTIFICATION:
+Server event occurs (e.g. Admin Approves Loan) → FCM/APNs Silent Data Push → Client Isolate Wakes → PULL.
+```
+
+- **FCM Data Message Payload**:
+  ```json
+  {
+    "to": "/topics/user_USR-CUST-1001",
+    "content_available": true,
+    "priority": "high",
+    "data": {
+      "type": "SYNC_TRIGGER",
+      "reason": "ADMIN_DECISION",
+      "entityId": "LOAN-1001"
+    }
+  }
+  ```
+- **Architectural Boundary**: Push notifications are an architectural option for future phases. **No FCM/APNs dependencies or backend changes were introduced in Phase 9.3.**
+
+---
+
+### 13.6 Complete Offline Loan Workflow (End-to-End Trace)
+
+```text
+1. CUSTOMER OFFLINE:
+   Customer submits loan application on mobile device.
+   ↓
+2. LOCAL SQLITE INSERTION:
+   LoanProvider.createLoan() executes local SQLite transaction.
+   • Record created in `loans` table.
+   • Queue item created in `sync_queue` with status = 'PENDING_SYNC'.
+   • UI displays status chip: "Saved Offline" (LoanSyncStatus.pendingSync).
+   • NO customer submission-success notification created yet (Phase 9.2 Rule).
+   ↓
+3. APP TERMINATION:
+   Customer closes/swipes-kills application. Dart VM process dies.
+   ↓
+4. BACKGROUND OS WAKE-UP:
+   Device connects to internet. Android WorkManager / iOS BGTaskScheduler triggers background isolate.
+   ↓
+5. HEADLESS ISOLATE EXECUTION:
+   @pragma('vm:entry-point') backgroundSyncRunner initializes:
+   • SQLite database Service (blackvault.db).
+   • Retrieves stored Auth Token.
+   • Performs Connectivity Preflight Check (GET /api/health).
+   ↓
+6. SYNC ENGINE PUSH:
+   SyncEngine.pushPending() sends queued CREATE operation to backend /api/sync/push.
+   ↓
+7. BACKEND ACKNOWLEDGMENT & CONFIRMATION:
+   Backend responds HTTP 200 OK with status: 'SYNCED'.
+   • `sync_queue` item status updated to 'SYNCED'.
+   • `LoanSyncStatus` transitions to 'Server Verified' (synced).
+   • Phase 9.2 durable notification created: id = 'NOTIF-SYNC-SUB-LOAN-xxx' ("Loan Submitted").
+   ↓
+8. PULL & CLEANUP:
+   SyncEngine.pullChanges() fetches latest server deltas. Isolate closes SQLite and returns Result.success().
+```
+
+#### Fallback Workflow (If OS Never Wakes App)
+- **Data Durability**: The local loan record and `sync_queue` item remain 100% safe and intact in `blackvault.db`.
+- **Automatic Recovery**: When the customer re-opens the application, `main.dart` initializes `SyncCoordinator`, and the `startup` / `appResumed` trigger flushes the queue immediately.
+
+---
+
+### 13.7 Authentication & Credential Contract
+
+To preserve security, background synchronization operates under strict authentication states:
+
+```text
+                               ┌───────────────────────────┐
+                               │ Background Sync Initiated │
+                               └─────────────┬─────────────┘
+                                             │
+                                             ▼
+                               ┌───────────────────────────┐
+                               │  Read Stored Credential   │
+                               └─────────────┬─────────────┘
+                                             │
+               ┌─────────────────────────────┼─────────────────────────────┐
+               ▼                             ▼                             ▼
+   ┌───────────────────────┐   ┌───────────────────────────┐   ┌───────────────────────┐
+   │ 1. AUTHENTICATED      │   │ 2. AUTH_REQUIRED          │   │ 3. SYNC_BLOCKED_AUTH  │
+   │ Token is valid.       │   │ Token expired / revoked.  │   │ No token stored.      │
+   │ Execute SyncEngine.   │   │ Mark queue PENDING_SYNC.  │   │ Stop isolate safely.  │
+   │ Return SUCCESS.       │   │ Return Result.failure().  │   │ Return Result.failure │
+   └───────────────────────┘   └───────────────────────────┘   └───────────────────────┘
+```
+
+> [!IMPORTANT]
+> **Security Rule**: A background worker must **NEVER** bypass authentication, fabricate dummy tokens, or perform mutations under an unauthenticated context. If authentication is invalid, the queue items remain safely `PENDING_SYNC` until the user logs in again in the foreground.
+
+---
+
+### 13.8 SQLite Safety & Threading Contract
+
+1. **Database Schema**: Must use existing `blackvault.db` (Schema Version 3). Zero schema migrations.
+2. **Single-Connection Thread Safety**: Uses `sqflite` FFI / native serialized connection handling.
+3. **Atomic Transaction Scope**: All status updates (`PENDING_SYNC` $\rightarrow$ `SYNCING` $\rightarrow$ `SYNCED`) execute within atomic SQLite transactions.
+4. **Crash Safety**: If the OS kills the background worker mid-execution, items left in `SYNCING` are automatically reset to `PENDING_SYNC` on the next execution pass via `SyncCoordinator.resetStaleSyncingItems()`.
+
+---
+
+### 13.9 `SyncCoordinator` vs `BackgroundSyncRunner` Architectural Boundary
+
+```text
+FOREGROUND APP:
+main.dart → MultiProvider → SyncCoordinator (Single-Flight Lock in VM memory) → SyncEngine
+
+BACKGROUND ISOLATE:
+Native OS → backgroundSyncRunner → Inter-Process File Lock Mutex → SyncEngine
+```
+
+- **Architectural Decision**: The background isolate will invoke `SyncEngine` directly via a dedicated `BackgroundSyncRunner` orchestrator.
+- **Why?**: `SyncCoordinator` contains Flutter UI provider hooks and in-memory streams (`ChangeNotifier`) that are unavailable in a headless Dart isolate.
+- **Single-Flight Inter-Process Safety**: To prevent a background worker and foreground app launch from running concurrent syncs, `BackgroundSyncRunner` uses an OS-level file lock (`blackvault_sync.lock`) as an atomic inter-process mutex.
+
+---
+
+### 13.10 Failure & Retry Matrix
+
+| Failure Scenario | Background Task Result | SQLite Queue Behavior | Retry Strategy | User Action Required |
+| :--- | :--- | :--- | :--- | :--- |
+| **`NETWORK_OFFLINE`** | `Result.retry()` | Retains `PENDING_SYNC`. | Retried on next OS network trigger. | None (Automatic). |
+| **`NETWORK_TIMEOUT`** | `Result.retry()` | Increments `retryCount`; status `SYNC_FAILED`. | Exponential backoff ($2^n \times 30\text{s}$). | None (Automatic). |
+| **`SOCKET_ERROR`** | `Result.retry()` | Retains `PENDING_SYNC`. | Retried on next connectivity probe. | None (Automatic). |
+| **`HTTP_401_UNAUTHORIZED`** | `Result.failure()` | Retains `PENDING_SYNC`; error logged. | Sync paused until user logs in. | **Yes** (Re-login in app). |
+| **`HTTP_409_CONFLICT`** | `Result.success()` | Marked `CONFLICT`; passes to `ConflictRecoveryService`. | Resolved via pure classifier/resolver. | None unless MANUAL_REVIEW. |
+| **`HTTP_5XX_SERVER_ERROR`** | `Result.retry()` | Increments `retryCount`; status `SYNC_FAILED`. | Exponential backoff up to max retries. | None (Automatic). |
+| **`SQLITE_FAILURE`** | `Result.failure()` | Transaction rolled back; payload preserved. | Retried on app restart. | None. |
+| **`AUTH_UNAVAILABLE`** | `Result.failure()` | Retains `PENDING_SYNC`. | Paused until authentication restored. | **Yes** (User login). |
+| **`OS_TASK_EXPIRATION`** | `Result.failure()` | Active batch committed; unpushed items `PENDING_SYNC`. | Retried on next OS background window. | None (Automatic). |
+| **`APP_CRASH_DURING_SYNC`**| `Result.failure()` | Stale `SYNCING` items reset to `PENDING_SYNC`. | Reset on next startup/resume. | None (Automatic). |
+| **`DUPLICATE_INVOCATION`** | `Result.success()` | Second worker blocked by file-lock mutex. | Immediately exits gracefully. | None. |
+
+---
+
+### 13.11 Duplicate Execution Safety & Inter-Process Locking
+
+To prevent race conditions between background isolates and foreground application execution:
+1. **File-Lock Mutex**: Before executing `SyncEngine`, `BackgroundSyncRunner` opens and locks `blackvault_sync.lock` in the application documents directory.
+2. **Lock Contention**: If `SyncCoordinator` (foreground) or another background worker holds the lock, the second isolate exits immediately with `Result.success()`.
+3. **Idempotency**: All push operations maintain unique `clientOperationId` keys, ensuring server-side idempotency even if lock failure occurs.
+
+---
+
+### 13.12 Security Audit & Compliance
+
+- **No Log Leakage**: Auth tokens, JWT secrets, and customer PII (names, phone numbers, amounts) are strictly excluded from OS background task logs (`Logcat` / `syslog`).
+- **No Metadata Exposure**: WorkManager / BGTaskScheduler task tags must use generic identifiers (`com.blackvault.sync`) without embedding entity IDs or user IDs in task metadata.
+- **Identity Scope**: All background operations execute under the authenticated `userId` retrieved from secure storage. Customer devices cannot perform admin-scoped mutations.
+
+---
+
+### 13.13 Implementation Boundary Statement
+
+> [!IMPORTANT]
+> **Phase 9.3 is an ARCHITECTURE & SPECIFICATION PHASE ONLY.**
+> - Zero native Android Java/Kotlin code was created or modified.
+> - Zero native iOS Swift/Objective-C code was created or modified.
+> - Zero native background packages (`workmanager`, `background_fetch`) were added to `pubspec.yaml`.
+> - Zero background timers or `Timer.periodic` polling loops were added.
+> - Zero SQLite schema migrations were performed.
+> - All production Dart code in `lib/` remains 100% unchanged.
